@@ -1,98 +1,155 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# NLP-to-SQL Chatbot
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A NestJS service that takes natural-language questions, turns them into safe,
+validated SQL against a configured database, executes them, and returns the
+results in a chat-style interface.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+The goal is not just "ask a question, get a query" — it is to do that without
+handing an LLM unchecked access to a database. Generated SQL is parsed and
+validated before it runs, execution is restricted to read-only queries under a
+row limit and timeout, and every query is logged.
 
-## Description
+> **Status:** in active development against a 7-day plan — see
+> [`MILESTONES.md`](MILESTONES.md). Day 1 (project foundations) is complete.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## How it works
 
-## Project setup
-
-```bash
-$ npm install
+```
+question ──▶ schema introspection ──▶ prompt assembly ──▶ LLM
+                                                           │
+                                                           ▼
+results ◀── execution (read-only) ◀── validation ◀───── SQL
 ```
 
-## Compile and run the project
+1. **Introspect** — read table and column metadata from the connected database.
+2. **Prompt** — serialize that schema into context for the model.
+3. **Generate** — the LLM proposes SQL for the user's question.
+4. **Validate** — parse the SQL, reject anything that is not a bounded `SELECT`.
+5. **Execute** — run it on a read-only connection with a timeout and row cap.
+6. **Respond** — return the rows plus a natural-language summary.
+
+Steps 1–2 land on Day 2, 3 on Day 3, 4 on Day 4, and 5–6 on Day 5.
+
+## Tech stack
+
+| Concern       | Choice                        |
+| ------------- | ----------------------------- |
+| Framework     | NestJS 11 (TypeScript)        |
+| Database      | PostgreSQL 16 via TypeORM     |
+| Config        | `@nestjs/config` + Joi schema |
+| Health checks | `@nestjs/terminus`            |
+| Local infra   | Docker Compose                |
+| Tests         | Jest + Supertest              |
+
+## Getting started
+
+### Prerequisites
+
+- Node.js 20+
+- Docker and Docker Compose
+
+### Setup
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+git clone https://github.com/KanishKhetarpal/nlp-to-sql-chatbot.git
+cd nlp-to-sql-chatbot
+npm install
 ```
 
-## Run tests
+Create your environment file from the template:
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+cp .env.example .env
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Start Postgres. The `--wait` flag returns only once the database is accepting
+connections:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+docker compose up -d --wait
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Run the app:
 
-## Resources
+```bash
+npm run start:dev
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+The service listens on `http://localhost:3000`.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+### Verify
 
-## Support
+```bash
+curl http://localhost:3000/health
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+A healthy service returns `200`:
 
-## Stay in touch
+```json
+{
+  "status": "ok",
+  "info": { "database": { "status": "up" } },
+  "error": {},
+  "details": { "database": { "status": "up" } }
+}
+```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+If Postgres is unreachable the same endpoint returns `503` with the database
+marked `down`, so the check is a genuine readiness signal rather than a
+liveness stub.
+
+## Configuration
+
+All variables are validated at boot against a Joi schema
+([`src/config/env.validation.ts`](src/config/env.validation.ts)). A missing or
+malformed value fails startup immediately instead of surfacing later as a
+runtime error.
+
+| Variable         | Default       | Description                                 |
+| ---------------- | ------------- | ------------------------------------------- |
+| `NODE_ENV`       | `development` | `development` \| `test` \| `production`     |
+| `PORT`           | `3000`        | HTTP port the service listens on            |
+| `DB_HOST`        | —             | Postgres host (required)                    |
+| `DB_PORT`        | `5432`        | Postgres port — `5433` in the compose setup |
+| `DB_USERNAME`    | —             | Postgres user (required)                    |
+| `DB_PASSWORD`    | —             | Postgres password (required, may be empty)  |
+| `DB_NAME`        | —             | Database name (required)                    |
+| `DB_SYNCHRONIZE` | `false`       | TypeORM auto-sync — local development only  |
+| `DB_LOGGING`     | `false`       | Log generated SQL                           |
+
+## Project structure
+
+```
+src/
+├── config/       # environment loading, Joi validation, typed config
+├── database/     # TypeORM connection module
+├── health/       # GET /health — liveness + database ping
+└── main.ts       # bootstrap
+```
+
+## Scripts
+
+```bash
+npm run start:dev    # watch mode
+npm run build        # compile to dist/
+npm run lint         # eslint --fix
+npm test             # unit tests
+npm run test:e2e     # end-to-end tests
+npm run test:cov     # coverage report
+```
+
+## Roadmap
+
+The full 7-day breakdown is in [`MILESTONES.md`](MILESTONES.md).
+
+- **Day 1** — project foundations ✅
+- **Day 2** — schema introspection
+- **Day 3** — NL-to-SQL generation
+- **Day 4** — SQL validation and safety
+- **Day 5** — query execution and results
+- **Day 6** — chat API and access control
+- **Day 7** — polish, docs, deployment
 
 ## License
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+UNLICENSED — portfolio project.
