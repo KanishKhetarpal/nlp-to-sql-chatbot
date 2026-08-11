@@ -1,0 +1,24 @@
+import * as Joi from 'joi';
+
+/**
+ * Schema every environment variable is checked against on boot. A missing or
+ * malformed value fails startup immediately instead of surfacing as a runtime
+ * error somewhere deeper in the request path.
+ */
+export const envValidationSchema = Joi.object({
+  NODE_ENV: Joi.string()
+    .valid('development', 'test', 'production')
+    .default('development'),
+  PORT: Joi.number().port().default(3000),
+
+  DB_HOST: Joi.string().hostname().required(),
+  DB_PORT: Joi.number().port().default(5432),
+  DB_USERNAME: Joi.string().required(),
+  DB_PASSWORD: Joi.string().allow('').required(),
+  DB_NAME: Joi.string().required(),
+
+  // Schema is managed through migrations; synchronize stays off unless a
+  // developer deliberately turns it on locally.
+  DB_SYNCHRONIZE: Joi.boolean().default(false),
+  DB_LOGGING: Joi.boolean().default(false),
+});
