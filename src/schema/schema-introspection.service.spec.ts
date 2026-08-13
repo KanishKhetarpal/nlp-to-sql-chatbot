@@ -180,9 +180,9 @@ describe('SchemaIntrospectionService', () => {
     expect(customers.columns.find((c) => c.name === 'id')!.isPrimaryKey).toBe(
       true,
     );
-    expect(customers.columns.find((c) => c.name === 'email')!.isPrimaryKey).toBe(
-      false,
-    );
+    expect(
+      customers.columns.find((c) => c.name === 'email')!.isPrimaryKey,
+    ).toBe(false);
   });
 
   it('maps foreign keys to their referenced table', async () => {

@@ -23,7 +23,9 @@ export class SchemaService {
     private readonly cache: SchemaCacheService,
   ) {}
 
-  async getSchema(options: { refresh?: boolean } = {}): Promise<DatabaseSchema> {
+  async getSchema(
+    options: { refresh?: boolean } = {},
+  ): Promise<DatabaseSchema> {
     if (!options.refresh) {
       const cached = this.cache.get();
       if (cached) {

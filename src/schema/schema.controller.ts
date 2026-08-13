@@ -35,9 +35,7 @@ export class SchemaController {
 
   /** The full snapshot as JSON. */
   @Get()
-  async getSchema(
-    @Query('refresh') refresh?: string,
-  ): Promise<SchemaResponse> {
+  async getSchema(@Query('refresh') refresh?: string): Promise<SchemaResponse> {
     const schema = await this.schemaService.getSchema({
       refresh: isTrue(refresh),
     });

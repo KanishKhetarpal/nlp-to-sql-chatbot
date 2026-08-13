@@ -7,10 +7,7 @@
  */
 
 export type TableKind =
-  | 'table'
-  | 'view'
-  | 'materialized_view'
-  | 'partitioned_table';
+  'table' | 'view' | 'materialized_view' | 'partitioned_table';
 
 export interface ColumnMetadata {
   name: string;
