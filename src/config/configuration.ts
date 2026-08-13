@@ -13,9 +13,17 @@ export interface DatabaseConfig {
   logging: boolean;
 }
 
+export interface IntrospectionConfig {
+  /** Postgres namespaces to read metadata from. */
+  schemas: string[];
+  /** How long an introspected snapshot stays fresh, in seconds. */
+  cacheTtlSeconds: number;
+}
+
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
+  introspection: IntrospectionConfig;
 }
 
 /**
@@ -36,5 +44,15 @@ export default (): Configuration => ({
     name: process.env.DB_NAME as string,
     synchronize: process.env.DB_SYNCHRONIZE === 'true',
     logging: process.env.DB_LOGGING === 'true',
+  },
+  introspection: {
+    schemas: (process.env.INTROSPECTION_SCHEMAS as string)
+      .split(',')
+      .map((schema) => schema.trim())
+      .filter((schema) => schema.length > 0),
+    cacheTtlSeconds: parseInt(
+      process.env.INTROSPECTION_CACHE_TTL as string,
+      10,
+    ),
   },
 });

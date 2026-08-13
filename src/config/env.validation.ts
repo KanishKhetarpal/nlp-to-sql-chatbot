@@ -21,4 +21,8 @@ export const envValidationSchema = Joi.object({
   // developer deliberately turns it on locally.
   DB_SYNCHRONIZE: Joi.boolean().default(false),
   DB_LOGGING: Joi.boolean().default(false),
+
+  // Comma-separated list of Postgres schemas to introspect.
+  INTROSPECTION_SCHEMAS: Joi.string().default('public'),
+  INTROSPECTION_CACHE_TTL: Joi.number().integer().min(0).default(300),
 });
