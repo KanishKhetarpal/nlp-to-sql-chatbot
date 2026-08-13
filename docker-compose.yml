@@ -13,6 +13,8 @@ services:
       - '${DB_PORT:-5433}:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Seeded once, on first creation of the volume above.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       # Compose reports the service healthy only once Postgres accepts
       # connections, so `up --wait` is enough to gate the app start.
