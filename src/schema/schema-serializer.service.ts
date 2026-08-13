@@ -33,7 +33,12 @@ const DEFAULTS: Required<Omit<SerializeOptions, 'tables'>> = {
 @Injectable()
 export class SchemaSerializerService {
   serialize(schema: DatabaseSchema, options: SerializeOptions = {}): string {
-    const opts = { ...DEFAULTS, ...options };
+    // Coalesced rather than spread: an explicit `undefined` in options would
+    // otherwise overwrite the default it is meant to fall back to.
+    const opts = {
+      includeComments: options.includeComments ?? DEFAULTS.includeComments,
+      includeDefaults: options.includeDefaults ?? DEFAULTS.includeDefaults,
+    };
 
     // With a single schema in play, the prefix is noise on every identifier;
     // users and models both write `customers`, not `public.customers`.

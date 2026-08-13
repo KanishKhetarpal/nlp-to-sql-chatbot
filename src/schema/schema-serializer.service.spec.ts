@@ -148,6 +148,16 @@ describe('SchemaSerializerService', () => {
     expect(output).not.toContain('--');
   });
 
+  it('falls back to defaults when an option is explicitly undefined', () => {
+    const output = service.serialize(schema([customers]), {
+      includeComments: undefined,
+      includeDefaults: undefined,
+    });
+
+    expect(output).toContain('-- People who have registered an account.');
+    expect(output).not.toContain('nextval');
+  });
+
   it('omits column defaults unless requested', () => {
     expect(service.serialize(schema([customers]))).not.toContain('nextval');
 
