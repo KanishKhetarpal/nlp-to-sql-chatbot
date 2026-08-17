@@ -20,10 +20,23 @@ export interface IntrospectionConfig {
   cacheTtlSeconds: number;
 }
 
+export type LlmProvider = 'anthropic' | 'stub';
+
+export interface LlmConfig {
+  /** Which backend fulfils completions. `stub` needs no credentials. */
+  provider: LlmProvider;
+  apiKey: string;
+  model: string;
+  maxTokens: number;
+  /** Thinking depth and overall token spend. */
+  effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+}
+
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
   introspection: IntrospectionConfig;
+  llm: LlmConfig;
 }
 
 /**
@@ -54,5 +67,12 @@ export default (): Configuration => ({
       process.env.INTROSPECTION_CACHE_TTL as string,
       10,
     ),
+  },
+  llm: {
+    provider: process.env.LLM_PROVIDER as LlmProvider,
+    apiKey: process.env.ANTHROPIC_API_KEY ?? '',
+    model: process.env.LLM_MODEL as string,
+    maxTokens: parseInt(process.env.LLM_MAX_TOKENS as string, 10),
+    effort: process.env.LLM_EFFORT as LlmConfig['effort'],
   },
 });

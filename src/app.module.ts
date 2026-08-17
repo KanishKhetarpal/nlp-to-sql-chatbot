@@ -5,9 +5,16 @@ import { ConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 import { SchemaModule } from './schema/schema.module';
+import { LlmModule } from './llm/llm.module';
 
 @Module({
-  imports: [ConfigModule, DatabaseModule, HealthModule, SchemaModule],
+  imports: [
+    ConfigModule,
+    DatabaseModule,
+    HealthModule,
+    SchemaModule,
+    LlmModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })

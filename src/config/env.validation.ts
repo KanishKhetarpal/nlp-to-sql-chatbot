@@ -25,4 +25,20 @@ export const envValidationSchema = Joi.object({
   // Comma-separated list of Postgres schemas to introspect.
   INTROSPECTION_SCHEMAS: Joi.string().default('public'),
   INTROSPECTION_CACHE_TTL: Joi.number().integer().min(0).default(300),
+
+  // Which backend answers natural-language questions. `stub` is the default so
+  // the service runs with no credentials; `anthropic` requires an API key and
+  // is rejected at boot without one.
+  LLM_PROVIDER: Joi.string().valid('anthropic', 'stub').default('stub'),
+  ANTHROPIC_API_KEY: Joi.string().allow('').default('').when('LLM_PROVIDER', {
+    is: 'anthropic',
+    then: Joi.string().required().min(1),
+  }),
+  LLM_MODEL: Joi.string().default('claude-opus-5'),
+  LLM_MAX_TOKENS: Joi.number().integer().min(1024).default(16000),
+  // `high` is the API default. `medium` and `low` are worth sweeping on your
+  // own examples — they are unusually strong on current models and cost less.
+  LLM_EFFORT: Joi.string()
+    .valid('low', 'medium', 'high', 'xhigh', 'max')
+    .default('high'),
 });
