@@ -41,4 +41,10 @@ export const envValidationSchema = Joi.object({
   LLM_EFFORT: Joi.string()
     .valid('low', 'medium', 'high', 'xhigh', 'max')
     .default('high'),
+
+  // Conversations are held in memory, so all three of these bound how much of
+  // it a busy instance can consume.
+  CONVERSATION_TTL: Joi.number().integer().min(60).default(3600),
+  CONVERSATION_MAX_TURNS: Joi.number().integer().min(1).default(20),
+  CONVERSATION_MAX_SESSIONS: Joi.number().integer().min(1).default(1000),
 });

@@ -32,11 +32,21 @@ export interface LlmConfig {
   effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 }
 
+export interface ConversationConfig {
+  /** How long a conversation survives without activity, in seconds. */
+  ttlSeconds: number;
+  /** Turns kept per conversation; older turns fall out of the prompt. */
+  maxTurns: number;
+  /** Conversations held in memory before the least recent are evicted. */
+  maxSessions: number;
+}
+
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
   introspection: IntrospectionConfig;
   llm: LlmConfig;
+  conversation: ConversationConfig;
 }
 
 /**
@@ -74,5 +84,10 @@ export default (): Configuration => ({
     model: process.env.LLM_MODEL as string,
     maxTokens: parseInt(process.env.LLM_MAX_TOKENS as string, 10),
     effort: process.env.LLM_EFFORT as LlmConfig['effort'],
+  },
+  conversation: {
+    ttlSeconds: parseInt(process.env.CONVERSATION_TTL as string, 10),
+    maxTurns: parseInt(process.env.CONVERSATION_MAX_TURNS as string, 10),
+    maxSessions: parseInt(process.env.CONVERSATION_MAX_SESSIONS as string, 10),
   },
 });
