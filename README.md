@@ -10,8 +10,8 @@ validated before it runs, execution is restricted to read-only queries under a
 row limit and timeout, and every query is logged.
 
 > **Status:** in active development against a 7-day plan — see
-> [`MILESTONES.md`](MILESTONES.md). Days 1–2 are complete: project foundations
-> and schema introspection.
+> [`MILESTONES.md`](MILESTONES.md). Days 1–3 are complete: project foundations,
+> schema introspection, and natural-language-to-SQL generation.
 
 ## How it works
 
@@ -29,7 +29,8 @@ results ◀── execution (read-only) ◀── validation ◀───── 
 5. **Execute** — run it on a read-only connection with a timeout and row cap.
 6. **Respond** — return the rows plus a natural-language summary.
 
-Steps 1 and 2 are built. Step 3 lands on Day 3, 4 on Day 4, and 5–6 on Day 5.
+Steps 1–3 are built. Step 4 lands on Day 4 and steps 5–6 on Day 5. Until then
+the service *proposes* a query and stops — nothing is executed.
 
 ### Schema context
 
@@ -56,6 +57,46 @@ CREATE TABLE orders (
 Snapshots are cached in memory for `INTROSPECTION_CACHE_TTL` seconds, and
 concurrent misses collapse into a single introspection rather than each firing
 its own catalog queries.
+
+### Generation
+
+The instructions and the schema form a stable prompt prefix; the question and
+the conversation so far follow it, which is the order prompt caching rewards.
+The model answers against a JSON schema rather than in prose:
+
+```json
+{
+  "answerable": true,
+  "sql": "SELECT count(*) FROM customers WHERE country = 'United Kingdom';",
+  "explanation": "Counts customer rows filtered to the UK.",
+  "tables": ["customers"]
+}
+```
+
+`answerable` is a first-class field, not an empty `sql` by convention. A
+question the schema cannot answer should come back as a clear no with the
+reason — a plausible query over the wrong columns is worse than no query at all.
+
+### Provider independence
+
+Callers depend on an `LlmClient` abstraction, never on a vendor SDK. Two
+implementations ship:
+
+| `LLM_PROVIDER` | Behaviour |
+| -------------- | --------------------------------------------------------- |
+| `stub`         | Default. A canned, deterministic answer — no credentials needed, so the service runs and the whole pipeline can be exercised on a fresh clone. |
+| `anthropic`    | Real generation via Claude. Requires `ANTHROPIC_API_KEY`; the app refuses to boot without one. |
+
+Refusals, truncated responses, and transport failures are translated into typed
+errors at that boundary, so nothing above it imports the vendor's exception
+classes.
+
+### Conversations
+
+Follow-ups ("and how many of those are in the UK?") are resolved against the
+turns before them. Conversations live in memory — cheap to rebuild, worthless
+once the person leaves — bounded three ways: a TTL, a cap on turns kept per
+conversation, and least-recently-active eviction at a session ceiling.
 
 ## Tech stack
 
@@ -189,6 +230,24 @@ Schema introspection:
 | `INTROSPECTION_SCHEMAS`   | `public` | Comma-separated Postgres schemas to expose            |
 | `INTROSPECTION_CACHE_TTL` | `300`    | Seconds a snapshot stays fresh; `0` disables caching  |
 
+Language model:
+
+| Variable            | Default          | Description                                              |
+| ------------------- | ---------------- | -------------------------------------------------------- |
+| `LLM_PROVIDER`      | `stub`           | `stub` \| `anthropic`                                     |
+| `ANTHROPIC_API_KEY` | —                | Required when `LLM_PROVIDER=anthropic`                    |
+| `LLM_MODEL`         | `claude-opus-5`  | Model id                                                  |
+| `LLM_MAX_TOKENS`    | `16000`          | Output ceiling — covers reasoning and answer together     |
+| `LLM_EFFORT`        | `high`           | `low` … `max`; worth sweeping down on your own examples   |
+
+Conversations:
+
+| Variable                    | Default | Description                                   |
+| --------------------------- | ------- | --------------------------------------------- |
+| `CONVERSATION_TTL`          | `3600`  | Seconds a conversation survives without use    |
+| `CONVERSATION_MAX_TURNS`    | `20`    | Turns kept per conversation                    |
+| `CONVERSATION_MAX_SESSIONS` | `1000`  | Conversations held before LRU eviction         |
+
 ## Project structure
 
 ```
@@ -198,8 +257,13 @@ src/
 ├── database/     # TypeORM connection module
 ├── health/       # GET /health — liveness + database ping
 ├── schema/       # catalog introspection, TTL cache, DDL serialization
+├── llm/          # provider-agnostic client + Anthropic and stub backends
+├── nl-to-sql/    # prompt construction, conversations, SQL generation
 └── main.ts       # bootstrap
 ```
+
+The chat endpoints that expose generation over HTTP arrive on Day 6; for now
+`SqlGenerationService` is consumed in-process.
 
 ## Scripts
 
@@ -218,7 +282,7 @@ The full 7-day breakdown is in [`MILESTONES.md`](MILESTONES.md).
 
 - **Day 1** — project foundations ✅
 - **Day 2** — schema introspection ✅
-- **Day 3** — NL-to-SQL generation
+- **Day 3** — NL-to-SQL generation ✅
 - **Day 4** — SQL validation and safety
 - **Day 5** — query execution and results
 - **Day 6** — chat API and access control
