@@ -6,6 +6,7 @@ import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
 import { SchemaModule } from './schema/schema.module';
 import { LlmModule } from './llm/llm.module';
+import { NlToSqlModule } from './nl-to-sql/nl-to-sql.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { LlmModule } from './llm/llm.module';
     HealthModule,
     SchemaModule,
     LlmModule,
+    NlToSqlModule,
   ],
   controllers: [AppController],
   providers: [AppService],
