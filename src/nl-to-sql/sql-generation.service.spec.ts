@@ -46,10 +46,20 @@ const answer = {
   tables: ['customers'],
 };
 
+/** The parts of the prompt these tests assert on. */
+interface SentPrompt {
+  system: { text: string }[];
+  messages: { role: string; content: string }[];
+}
+
 describe('SqlGenerationService', () => {
   let service: SqlGenerationService;
   let conversations: ConversationService;
   let complete: jest.Mock;
+
+  /** Typed view of a prompt passed to the LLM, so assertions aren't `any`. */
+  const sentPrompt = (index = 0): SentPrompt =>
+    (complete.mock.calls as unknown as [SentPrompt][])[index][0];
 
   const respond = (text: string) =>
     complete.mockResolvedValue({
@@ -130,10 +140,7 @@ describe('SqlGenerationService', () => {
 
     // The second call must carry the first exchange, or a follow-up like
     // "and how many in the UK?" has nothing to resolve against.
-    const secondPrompt = complete.mock.calls[1][0] as {
-      messages: { role: string; content: string }[];
-    };
-    expect(secondPrompt.messages).toEqual([
+    expect(sentPrompt(1).messages).toEqual([
       { role: 'user', content: 'How many customers?' },
       { role: 'assistant', content: 'SELECT count(*) FROM customers;' },
       { role: 'user', content: 'And how many in the UK?' },
@@ -143,10 +150,7 @@ describe('SqlGenerationService', () => {
   it('sends the serialized schema as prompt context', async () => {
     await service.generate({ question: 'How many customers?' });
 
-    const prompt = complete.mock.calls[0][0] as {
-      system: { text: string }[];
-    };
-    expect(prompt.system[1].text).toContain('CREATE TABLE customers (');
+    expect(sentPrompt().system[1].text).toContain('CREATE TABLE customers (');
   });
 
   it('passes an unanswerable verdict through with no SQL', async () => {
@@ -169,9 +173,7 @@ describe('SqlGenerationService', () => {
   });
 
   it('discards SQL that accompanies an unanswerable verdict', async () => {
-    respond(
-      JSON.stringify({ ...answer, answerable: false, sql: 'SELECT 1;' }),
-    );
+    respond(JSON.stringify({ ...answer, answerable: false, sql: 'SELECT 1;' }));
 
     const result = await service.generate({ question: 'anything' });
 

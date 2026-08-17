@@ -44,6 +44,30 @@ jest.mock('@anthropic-ai/sdk', () => {
 // Imported after the mock is registered so the stubbed classes are in place.
 import Anthropic from '@anthropic-ai/sdk';
 
+/** The subset of the request body these tests assert on. */
+interface SentParams {
+  model: string;
+  max_tokens: number;
+  betas: string[];
+  fallbacks: string;
+  system: { text: string; cache_control?: { type: string } }[];
+  messages: { role: string; content: string }[];
+  output_config: {
+    effort: string;
+    format?: { type: string; schema: Record<string, unknown> };
+  };
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  thinking?: unknown;
+}
+
+type ErrorCtor = new (status: number | undefined, message: string) => Error;
+
+/** Typed view of what was passed to the SDK, so assertions aren't `any`. */
+const sent = (index = 0): SentParams =>
+  (mockCreate.mock.calls as unknown as [SentParams][])[index][0];
+
 const reply = (overrides: Record<string, unknown> = {}) => ({
   model: 'claude-opus-5',
   stop_reason: 'end_turn',
@@ -96,7 +120,7 @@ describe('AnthropicLlmClient', () => {
     await complete();
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
-    const params = mockCreate.mock.calls[0][0] as Record<string, any>;
+    const params = sent();
 
     expect(params.model).toBe('claude-opus-5');
     expect(params.max_tokens).toBe(16000);
@@ -105,7 +129,7 @@ describe('AnthropicLlmClient', () => {
 
   it('never sends sampling parameters, which current models reject', async () => {
     await complete();
-    const params = mockCreate.mock.calls[0][0] as Record<string, unknown>;
+    const params = sent();
 
     expect(params).not.toHaveProperty('temperature');
     expect(params).not.toHaveProperty('top_p');
@@ -114,14 +138,14 @@ describe('AnthropicLlmClient', () => {
 
   it('leaves thinking unset rather than disabling it', async () => {
     await complete();
-    const params = mockCreate.mock.calls[0][0] as Record<string, unknown>;
+    const params = sent();
 
     expect(params).not.toHaveProperty('thinking');
   });
 
   it('opts into server-side fallbacks so a refusal is retried, not surfaced', async () => {
     await complete();
-    const params = mockCreate.mock.calls[0][0] as Record<string, unknown>;
+    const params = sent();
 
     expect(params.fallbacks).toBe('default');
     expect(params.betas).toEqual(['server-side-fallback-2026-07-01']);
@@ -129,7 +153,7 @@ describe('AnthropicLlmClient', () => {
 
   it('passes the JSON schema through as a structured output format', async () => {
     await complete();
-    const params = mockCreate.mock.calls[0][0] as Record<string, any>;
+    const params = sent();
 
     expect(params.output_config.format).toEqual({
       type: 'json_schema',
@@ -143,13 +167,12 @@ describe('AnthropicLlmClient', () => {
       messages: [{ role: 'user', content: 'hi' }],
     });
 
-    const params = mockCreate.mock.calls[0][0] as Record<string, any>;
-    expect(params.output_config).not.toHaveProperty('format');
+    expect(sent().output_config).not.toHaveProperty('format');
   });
 
   it('marks only the cacheable system block for caching', async () => {
     await complete();
-    const params = mockCreate.mock.calls[0][0] as Record<string, any>;
+    const params = sent();
 
     expect(params.system[0]).not.toHaveProperty('cache_control');
     expect(params.system[1].cache_control).toEqual({ type: 'ephemeral' });
@@ -207,8 +230,8 @@ describe('AnthropicLlmClient', () => {
     ['AuthenticationError', 401, false],
     ['NotFoundError', 404, false],
   ])('translates %s into a typed error', async (name, status, retryable) => {
-    const ErrorClass = (Anthropic as unknown as Record<string, any>)[name];
-    mockCreate.mockRejectedValue(new ErrorClass(status, 'boom'));
+    const errorClasses = Anthropic as unknown as Record<string, ErrorCtor>;
+    mockCreate.mockRejectedValue(new errorClasses[name](status, 'boom'));
 
     await expect(complete()).rejects.toBeInstanceOf(LlmUnavailableError);
     await expect(complete()).rejects.toMatchObject({ retryable });

@@ -61,8 +61,10 @@ const turn = (
 describe('PromptBuilderService', () => {
   const service = new PromptBuilderService(new SchemaSerializerService());
 
-  const build = (question = 'How many customers are there?', history?: ConversationTurn[]) =>
-    service.build({ question, schema, history });
+  const build = (
+    question = 'How many customers are there?',
+    history?: ConversationTurn[],
+  ) => service.build({ question, schema, history });
 
   describe('system prompt', () => {
     it('states the SELECT-only rule the validator will enforce', () => {

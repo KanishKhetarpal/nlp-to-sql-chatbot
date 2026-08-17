@@ -67,7 +67,10 @@ export class LlmRefusalError extends Error {
     readonly category: string | null,
     explanation?: string | null,
   ) {
-    super(explanation ?? `The model declined to answer (${category ?? 'unspecified'})`);
+    super(
+      explanation ??
+        `The model declined to answer (${category ?? 'unspecified'})`,
+    );
     this.name = 'LlmRefusalError';
   }
 }
