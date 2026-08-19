@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SchemaService } from '../schema/schema.service';
+import { DatabaseSchema } from '../schema/schema.types';
 import { LlmClient, LlmUsage } from '../llm/llm.types';
+import { SqlValidatorService } from '../sql-safety/sql-validator.service';
+import {
+  LimitOrigin,
+  SqlValidationError,
+  Violation,
+} from '../sql-safety/sql-validation.types';
 import { ConversationService } from './conversation.service';
 import { PromptBuilderService } from './prompt-builder.service';
 import { SqlGeneration } from './nl-to-sql.types';
@@ -11,9 +18,29 @@ export interface GenerateRequest {
   conversationId?: string;
 }
 
+/**
+ * What safety review made of the proposed query.
+ *
+ * A rejection is a result, not an exception: the caller still wants to show
+ * what was generated and say why it will not run.
+ */
+export type ValidationOutcome =
+  | {
+      status: 'valid';
+      /** The bounded statement that is safe to execute. */
+      sql: string;
+      tables: string[];
+      rowLimit: number;
+      limitOrigin: LimitOrigin;
+    }
+  | { status: 'rejected'; violations: Violation[] }
+  /** No query was produced, so there was nothing to check. */
+  | { status: 'skipped' };
+
 export interface GenerateResult {
   conversationId: string;
   generation: SqlGeneration;
+  validation: ValidationOutcome;
   /** The model that actually answered — a fallback can change it. */
   model: string;
   usage: LlmUsage;
@@ -34,12 +61,11 @@ export class MalformedGenerationError extends Error {
  * Turns a natural-language question into a proposed SQL query.
  *
  * The orchestration layer: resolve the conversation, fetch the schema, build
- * the prompt, call whichever provider is configured, and validate what comes
- * back before recording it as a turn.
+ * the prompt, call whichever provider is configured, check the answer shape,
+ * and put the proposed query through safety review before recording the turn.
  *
- * It does not execute anything. The query it returns is a *proposal* — Day 4
- * validates it and Day 5 runs it, so nothing here should be read as a promise
- * that the SQL is safe.
+ * It still does not execute anything. A `valid` outcome carries the bounded
+ * statement that would be safe to run; running it is the execution layer's job.
  */
 @Injectable()
 export class SqlGenerationService {
@@ -50,6 +76,7 @@ export class SqlGenerationService {
     private readonly promptBuilder: PromptBuilderService,
     private readonly conversations: ConversationService,
     private readonly llm: LlmClient,
+    private readonly validator: SqlValidatorService,
   ) {}
 
   async generate(request: GenerateRequest): Promise<GenerateResult> {
@@ -64,6 +91,7 @@ export class SqlGenerationService {
 
     const completion = await this.llm.complete(prompt);
     const generation = this.parse(completion.text);
+    const validation = this.review(generation, schema);
 
     this.conversations.record(conversation.id, {
       question: request.question,
@@ -80,9 +108,48 @@ export class SqlGenerationService {
     return {
       conversationId: conversation.id,
       generation,
+      validation,
       model: completion.model,
       usage: completion.usage,
     };
+  }
+
+  /**
+   * Puts the proposed query through safety review.
+   *
+   * Nothing the model returns is trusted on its own: the prompt asks for a
+   * bounded SELECT, and this is where that is actually enforced.
+   */
+  private review(
+    generation: SqlGeneration,
+    schema: DatabaseSchema,
+  ): ValidationOutcome {
+    if (!generation.answerable) {
+      return { status: 'skipped' };
+    }
+
+    try {
+      const validated = this.validator.validate(generation.sql, schema);
+
+      return {
+        status: 'valid',
+        sql: validated.sql,
+        tables: validated.tables,
+        rowLimit: validated.rowLimit,
+        limitOrigin: validated.limitOrigin,
+      };
+    } catch (error) {
+      if (error instanceof SqlValidationError) {
+        this.logger.warn(
+          `Generated query failed validation: ${error.violations
+            .map((violation) => violation.code)
+            .join(', ')}`,
+        );
+        return { status: 'rejected', violations: error.violations };
+      }
+
+      throw error;
+    }
   }
 
   /**

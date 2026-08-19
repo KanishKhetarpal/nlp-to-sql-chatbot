@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { SchemaService } from '../schema/schema.service';
 import { SchemaSerializerService } from '../schema/schema-serializer.service';
 import { LlmClient, LlmRefusalError } from '../llm/llm.types';
+import { SqlValidatorService } from '../sql-safety/sql-validator.service';
 import { ConversationService } from './conversation.service';
 import { PromptBuilderService } from './prompt-builder.service';
 import {
@@ -84,6 +85,7 @@ describe('SqlGenerationService', () => {
         PromptBuilderService,
         SchemaSerializerService,
         ConversationService,
+        SqlValidatorService,
         {
           provide: SchemaService,
           useValue: { getSchema: jest.fn().mockResolvedValue(schema) },
@@ -98,10 +100,14 @@ describe('SqlGenerationService', () => {
         {
           provide: ConfigService,
           useValue: {
+            // One stub serves both consumers; each reads its own namespace.
             get: jest.fn().mockReturnValue({
               ttlSeconds: 3600,
               maxTurns: 20,
               maxSessions: 100,
+              maxRows: 500,
+              allowedTables: [],
+              deniedTables: [],
             }),
           },
         },
@@ -242,6 +248,77 @@ describe('SqlGenerationService', () => {
       ).rejects.toBeInstanceOf(MalformedGenerationError);
 
       expect(conversations.get(first.conversationId).turns).toHaveLength(1);
+    });
+  });
+
+  describe('safety review', () => {
+    it('reports a valid query with the bounded statement to run', async () => {
+      const result = await service.generate({ question: 'How many?' });
+
+      expect(result.validation).toMatchObject({
+        status: 'valid',
+        tables: ['customers'],
+        rowLimit: 500,
+        limitOrigin: 'injected',
+      });
+    });
+
+    it('bounds the statement it hands back', async () => {
+      const result = await service.generate({ question: 'How many?' });
+
+      expect(
+        result.validation.status === 'valid' && result.validation.sql,
+      ).toContain('LIMIT 500');
+    });
+
+    it('rejects a write the model proposed, without throwing', async () => {
+      respond(
+        JSON.stringify({ ...answer, sql: 'DELETE FROM customers' }),
+      );
+
+      const result = await service.generate({ question: 'delete everyone' });
+
+      expect(result.validation.status).toBe('rejected');
+      expect(
+        result.validation.status === 'rejected' &&
+          result.validation.violations.map((v) => v.code),
+      ).toContain('not_a_select');
+    });
+
+    it('still returns what was generated when it is rejected', async () => {
+      respond(JSON.stringify({ ...answer, sql: 'DROP TABLE customers' }));
+
+      const result = await service.generate({ question: 'drop it' });
+
+      // The caller needs the proposal to explain what was refused and why.
+      expect(result.generation.sql).toBe('DROP TABLE customers');
+      expect(result.validation.status).toBe('rejected');
+    });
+
+    it('rejects a query over a table outside the schema', async () => {
+      respond(JSON.stringify({ ...answer, sql: 'SELECT * FROM pg_shadow' }));
+
+      const result = await service.generate({ question: 'read passwords' });
+
+      expect(
+        result.validation.status === 'rejected' &&
+          result.validation.violations.map((v) => v.code),
+      ).toContain('unknown_table');
+    });
+
+    it('skips review when the question was unanswerable', async () => {
+      respond(
+        JSON.stringify({
+          answerable: false,
+          sql: '',
+          explanation: 'no such data',
+          tables: [],
+        }),
+      );
+
+      const result = await service.generate({ question: 'revenue?' });
+
+      expect(result.validation).toEqual({ status: 'skipped' });
     });
   });
 
