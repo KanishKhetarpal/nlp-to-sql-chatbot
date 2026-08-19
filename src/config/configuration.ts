@@ -41,13 +41,29 @@ export interface ConversationConfig {
   maxSessions: number;
 }
 
+export interface SqlSafetyConfig {
+  /** Hard ceiling on rows any generated query may return. */
+  maxRows: number;
+  /** When non-empty, only these tables may be queried. */
+  allowedTables: string[];
+  /** Tables that may never be queried, checked before the allow list. */
+  deniedTables: string[];
+}
+
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
   introspection: IntrospectionConfig;
   llm: LlmConfig;
   conversation: ConversationConfig;
+  sqlSafety: SqlSafetyConfig;
 }
+
+const csv = (value: string | undefined): string[] =>
+  (value ?? '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item.length > 0);
 
 /**
  * Maps validated environment variables onto a typed, namespaced config object.
@@ -89,5 +105,10 @@ export default (): Configuration => ({
     ttlSeconds: parseInt(process.env.CONVERSATION_TTL as string, 10),
     maxTurns: parseInt(process.env.CONVERSATION_MAX_TURNS as string, 10),
     maxSessions: parseInt(process.env.CONVERSATION_MAX_SESSIONS as string, 10),
+  },
+  sqlSafety: {
+    maxRows: parseInt(process.env.SQL_MAX_ROWS as string, 10),
+    allowedTables: csv(process.env.SQL_ALLOWED_TABLES),
+    deniedTables: csv(process.env.SQL_DENIED_TABLES),
   },
 });

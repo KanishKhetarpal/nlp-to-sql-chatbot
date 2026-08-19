@@ -50,4 +50,11 @@ export const envValidationSchema = Joi.object({
   CONVERSATION_TTL: Joi.number().integer().min(60).default(3600),
   CONVERSATION_MAX_TURNS: Joi.number().integer().min(1).default(20),
   CONVERSATION_MAX_SESSIONS: Joi.number().integer().min(1).default(1000),
+
+  // Query safety. The row cap is enforced on every generated query, by
+  // rewriting it rather than by trusting the model to include a LIMIT.
+  SQL_MAX_ROWS: Joi.number().integer().min(1).max(10000).default(500),
+  // Comma-separated. An empty allow list means every introspected table.
+  SQL_ALLOWED_TABLES: Joi.string().allow('').default(''),
+  SQL_DENIED_TABLES: Joi.string().allow('').default(''),
 });
