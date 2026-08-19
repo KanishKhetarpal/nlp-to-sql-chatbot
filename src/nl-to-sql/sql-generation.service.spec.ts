@@ -272,9 +272,7 @@ describe('SqlGenerationService', () => {
     });
 
     it('rejects a write the model proposed, without throwing', async () => {
-      respond(
-        JSON.stringify({ ...answer, sql: 'DELETE FROM customers' }),
-      );
+      respond(JSON.stringify({ ...answer, sql: 'DELETE FROM customers' }));
 
       const result = await service.generate({ question: 'delete everyone' });
 

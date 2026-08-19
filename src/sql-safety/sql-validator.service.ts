@@ -160,10 +160,7 @@ export class SqlValidatorService {
     let result: { ast: unknown; tableList: string[] };
 
     try {
-      result = this.parser.parse(sql, PARSER_OPTIONS) as {
-        ast: unknown;
-        tableList: string[];
-      };
+      result = this.parser.parse(sql, PARSER_OPTIONS);
     } catch (error) {
       throw new SqlValidationError(
         [
@@ -229,7 +226,9 @@ export class SqlValidatorService {
         violations.push({
           code: 'select_into',
           message: 'SELECT ... INTO creates a table and is not allowed',
-          subject: String(into.expr),
+          // A qualified target arrives as a node rather than a name; naming it
+          // is a nicety, so skip it rather than print "[object Object]".
+          subject: typeof into.expr === 'string' ? into.expr : undefined,
         });
       }
     }

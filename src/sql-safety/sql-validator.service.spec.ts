@@ -76,16 +76,16 @@ describe('SqlValidatorService', () => {
         'a join across tables',
         'SELECT c.id FROM customers c JOIN orders o ON o.customer_id = c.id',
       ],
-      [
-        'a CTE',
-        'WITH recent AS (SELECT id FROM orders) SELECT * FROM recent',
-      ],
+      ['a CTE', 'WITH recent AS (SELECT id FROM orders) SELECT * FROM recent'],
       [
         'a scalar subquery',
         'SELECT (SELECT count(*) FROM orders) AS total FROM customers',
       ],
       ['a union', 'SELECT id FROM customers UNION SELECT id FROM orders'],
-      ['an aggregate with grouping', 'SELECT country, count(*) FROM customers GROUP BY country'],
+      [
+        'an aggregate with grouping',
+        'SELECT country, count(*) FROM customers GROUP BY country',
+      ],
     ])('accepts %s', (_label, sql) => {
       expect(codesFor(sql)).toEqual([]);
     });
@@ -124,6 +124,18 @@ describe('SqlValidatorService', () => {
       expect(codesFor('SELECT * INTO evil FROM customers')).toContain(
         'select_into',
       );
+    });
+
+    it('names the INTO target when it is a plain table name', () => {
+      try {
+        service.validate('SELECT * INTO evil FROM customers', schema);
+        fail('expected a validation error');
+      } catch (error) {
+        const violation = (error as SqlValidationError).violations.find(
+          (candidate) => candidate.code === 'select_into',
+        );
+        expect(violation?.subject).toBe('evil');
+      }
     });
 
     it('rejects a write hidden inside a CTE', () => {
@@ -192,9 +204,7 @@ describe('SqlValidatorService', () => {
       // The parser lists CTE names alongside real tables; without subtracting
       // them every WITH query would be rejected.
       expect(
-        codesFor(
-          'WITH recent AS (SELECT id FROM orders) SELECT * FROM recent',
-        ),
+        codesFor('WITH recent AS (SELECT id FROM orders) SELECT * FROM recent'),
       ).toEqual([]);
     });
 
@@ -276,7 +286,9 @@ describe('SqlValidatorService', () => {
       );
 
       expect(result.limitOrigin).toBe('wrapped');
-      expect(result.sql).toMatch(/^SELECT \* FROM \(.*\) AS "bounded_query" LIMIT 500$/s);
+      expect(result.sql).toMatch(
+        /^SELECT \* FROM \(.*\) AS "bounded_query" LIMIT 500$/s,
+      );
     });
 
     it('honours a configured cap other than the default', () => {
@@ -328,7 +340,7 @@ describe('SqlValidatorService', () => {
 
   describe('error reporting', () => {
     it('collects every violation rather than stopping at the first', () => {
-      const codes = codesFor("SELECT pg_sleep(1) FROM nowhere");
+      const codes = codesFor('SELECT pg_sleep(1) FROM nowhere');
 
       expect(codes).toContain('forbidden_function');
       expect(codes).toContain('unknown_table');
