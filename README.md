@@ -10,8 +10,8 @@ validated before it runs, execution is restricted to read-only queries under a
 row limit and timeout, and every query is logged.
 
 > **Status:** in active development against a 7-day plan — see
-> [`MILESTONES.md`](MILESTONES.md). Days 1–3 are complete: project foundations,
-> schema introspection, and natural-language-to-SQL generation.
+> [`MILESTONES.md`](MILESTONES.md). Days 1–4 are complete: project foundations,
+> schema introspection, natural-language-to-SQL generation, and query safety.
 
 ## How it works
 
@@ -29,8 +29,8 @@ results ◀── execution (read-only) ◀── validation ◀───── 
 5. **Execute** — run it on a read-only connection with a timeout and row cap.
 6. **Respond** — return the rows plus a natural-language summary.
 
-Steps 1–3 are built. Step 4 lands on Day 4 and steps 5–6 on Day 5. Until then
-the service *proposes* a query and stops — nothing is executed.
+Steps 1–4 are built. Steps 5–6 land on Day 5. Until then the service proposes a
+query, judges whether it is safe, and stops — nothing is executed.
 
 ### Schema context
 
@@ -76,6 +76,56 @@ The model answers against a JSON schema rather than in prose:
 `answerable` is a first-class field, not an empty `sql` by convention. A
 question the schema cannot answer should come back as a clear no with the
 reason — a plausible query over the wrong columns is worse than no query at all.
+
+### Safety
+
+Nothing the model returns is trusted. Every proposed query is parsed and
+inspected before it could ever run, and the result is reported alongside the
+generation rather than thrown away:
+
+```json
+{
+  "status": "valid",
+  "sql": "SELECT id, country FROM \"customers\" WHERE country = 'United Kingdom' LIMIT 500",
+  "tables": ["customers"],
+  "rowLimit": 500,
+  "limitOrigin": "injected"
+}
+```
+
+Checks run against a parsed syntax tree, not regular expressions over the text.
+That matters because the interesting attacks are invisible to a text matcher or
+a statement-type check:
+
+| Attempt | Why a naive check misses it |
+| ------- | --------------------------- |
+| `SELECT 1; DROP TABLE customers;` | Only the first statement is inspected |
+| `SELECT * INTO evil FROM customers` | Parses as an ordinary `select`, but creates a table |
+| `WITH d AS (DELETE FROM customers RETURNING *) SELECT * FROM d` | Opens with `WITH`, deletes rows |
+| `SELECT pg_read_file('/etc/passwd')` | Reads the filesystem, references no table at all |
+| `EXPLAIN ANALYZE SELECT ...` | Sounds read-only; actually runs the query |
+
+Writes are refused at any depth, tables must appear in the introspected schema
+(with optional allow and deny lists on top), and a row cap is applied by
+rewriting the query rather than by trusting the model to add a `LIMIT`. A set
+operation is wrapped instead of given a `LIMIT` directly, because attaching one
+binds it to the first branch and leaves the rest of a `UNION` unbounded.
+
+The statement that comes back is rebuilt from the tree that was checked, so
+what would execute is what was validated — not the original text.
+
+A rejection carries every violation found, so the caller can explain all of
+what is wrong at once:
+
+```json
+{
+  "error": "sql_validation_failed",
+  "message": "Query rejected: Table \"pg_shadow\" is not in the introspected schema",
+  "violations": [
+    { "code": "unknown_table", "message": "...", "subject": "pg_shadow" }
+  ]
+}
+```
 
 ### Provider independence
 
@@ -248,6 +298,14 @@ Conversations:
 | `CONVERSATION_MAX_TURNS`    | `20`    | Turns kept per conversation                    |
 | `CONVERSATION_MAX_SESSIONS` | `1000`  | Conversations held before LRU eviction         |
 
+Query safety:
+
+| Variable              | Default | Description                                          |
+| --------------------- | ------- | ---------------------------------------------------- |
+| `SQL_MAX_ROWS`        | `500`   | Hard row ceiling, applied by rewriting the query      |
+| `SQL_ALLOWED_TABLES`  | —       | Comma-separated; empty means every introspected table |
+| `SQL_DENIED_TABLES`   | —       | Comma-separated; checked before the allow list        |
+
 ## Project structure
 
 ```
@@ -259,6 +317,7 @@ src/
 ├── schema/       # catalog introspection, TTL cache, DDL serialization
 ├── llm/          # provider-agnostic client + Anthropic and stub backends
 ├── nl-to-sql/    # prompt construction, conversations, SQL generation
+├── sql-safety/   # parser-based validation, table rules, row limits
 └── main.ts       # bootstrap
 ```
 
@@ -283,7 +342,7 @@ The full 7-day breakdown is in [`MILESTONES.md`](MILESTONES.md).
 - **Day 1** — project foundations ✅
 - **Day 2** — schema introspection ✅
 - **Day 3** — NL-to-SQL generation ✅
-- **Day 4** — SQL validation and safety
+- **Day 4** — SQL validation and safety ✅
 - **Day 5** — query execution and results
 - **Day 6** — chat API and access control
 - **Day 7** — polish, docs, deployment
