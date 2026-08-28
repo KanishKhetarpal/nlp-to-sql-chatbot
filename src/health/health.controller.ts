@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { Public } from '../common/decorators/public.decorator';
 import {
   HealthCheck,
   HealthCheckResult,
@@ -19,6 +20,7 @@ export class HealthController {
    * difference between "running" and "actually able to serve traffic".
    */
   @Get()
+  @Public()
   @HealthCheck()
   check(): Promise<HealthCheckResult> {
     return this.health.check([

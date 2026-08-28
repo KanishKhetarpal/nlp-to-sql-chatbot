@@ -48,7 +48,7 @@ export interface QueryAuditEntry {
   /** The statement as executed, after validation rewrote it. */
   sql: string;
   tables: string[];
-  outcome: 'succeeded' | 'rejected' | 'failed' | 'unanswerable';
+  outcome: 'succeeded' | 'rejected' | 'failed' | 'unanswerable' | 'dry_run';
   rowCount?: number;
   durationMs?: number;
   /** Violation codes for a rejection, or the failure reason for an error. */

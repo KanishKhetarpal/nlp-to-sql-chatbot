@@ -118,6 +118,17 @@ export class AskService {
     const { sql, tables } = generated.validation;
 
     if (request.dryRun) {
+      // Audited like any other question: someone asked it and a query was
+      // produced, which is what the trail is for. Only the execution is
+      // skipped.
+      this.audit.record({
+        conversationId: base.conversationId,
+        question: request.question,
+        sql,
+        tables,
+        outcome: 'dry_run',
+      });
+
       return { ...base, status: 'dry_run', sql };
     }
 

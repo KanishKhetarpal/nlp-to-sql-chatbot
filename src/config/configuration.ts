@@ -57,6 +57,15 @@ export interface ExecutionConfig {
   auditHistory: number;
 }
 
+export interface ApiConfig {
+  /** Accepted x-api-key values. Empty leaves every route open. */
+  keys: string[];
+  /** Requests allowed per window, per client. */
+  rateLimit: number;
+  /** Rate-limit window in seconds. */
+  rateWindowSeconds: number;
+}
+
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
@@ -65,6 +74,7 @@ export interface Configuration {
   conversation: ConversationConfig;
   sqlSafety: SqlSafetyConfig;
   execution: ExecutionConfig;
+  api: ApiConfig;
 }
 
 const csv = (value: string | undefined): string[] =>
@@ -122,5 +132,15 @@ export default (): Configuration => ({
   execution: {
     timeoutMs: parseInt(process.env.EXECUTION_TIMEOUT_MS as string, 10),
     auditHistory: parseInt(process.env.AUDIT_HISTORY as string, 10),
+  },
+  api: {
+    // Keys are case-sensitive secrets, so this list is not lower-cased the way
+    // the table names are.
+    keys: (process.env.API_KEYS ?? '')
+      .split(',')
+      .map((key) => key.trim())
+      .filter((key) => key.length > 0),
+    rateLimit: parseInt(process.env.RATE_LIMIT as string, 10),
+    rateWindowSeconds: parseInt(process.env.RATE_LIMIT_WINDOW as string, 10),
   },
 });
