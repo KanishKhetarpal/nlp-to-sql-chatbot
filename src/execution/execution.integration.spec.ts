@@ -52,7 +52,6 @@ describe('execution pipeline (integration)', () => {
   beforeAll(async () => {
     available = await canConnect();
     if (!available) {
-      // eslint-disable-next-line no-console
       console.warn(
         'Skipping execution integration tests: no database reachable. ' +
           'Run `docker compose up -d --wait` to include them.',
@@ -82,7 +81,8 @@ describe('execution pipeline (integration)', () => {
   });
 
   /** Runs the real pipeline: validate, then execute. */
-  const run = async (sql: string) => executor.execute(validator.validate(sql, schema));
+  const run = async (sql: string) =>
+    executor.execute(validator.validate(sql, schema));
 
   const maybe = (name: string, fn: () => Promise<void>, timeout?: number) =>
     it(
@@ -185,9 +185,9 @@ describe('execution pipeline (integration)', () => {
     await run('SELECT id FROM customers');
 
     const dataSource = moduleRef!.get(DataSource);
-    const rows = (await dataSource.query('SHOW statement_timeout')) as {
-      statement_timeout: string;
-    }[];
+    const rows = await dataSource.query<{ statement_timeout: string }[]>(
+      'SHOW statement_timeout',
+    );
 
     // Read the column by its real name and assert it is present, so this
     // cannot pass by reading undefined off the wrong key.

@@ -92,8 +92,16 @@ export class ResultFormatterService {
       return value.toISOString();
     }
 
+    // Narrowed rather than passed straight to String(), which would render
+    // an object as "[object Object]".
     const text =
-      typeof value === 'object' ? JSON.stringify(value) : String(value);
+      typeof value === 'string'
+        ? value
+        : typeof value === 'number' ||
+            typeof value === 'boolean' ||
+            typeof value === 'bigint'
+          ? String(value)
+          : JSON.stringify(value);
 
     return text.length > MAX_CELL_WIDTH
       ? `${text.slice(0, MAX_CELL_WIDTH - 1)}…`

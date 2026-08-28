@@ -9,6 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { AskService } from '../nl-to-sql/ask.service';
 import type { AskResponse } from '../nl-to-sql/ask.service';
 import { ConversationService } from '../nl-to-sql/conversation.service';
@@ -24,6 +25,8 @@ import { ConversationParams } from './dto/conversation-params.dto';
  * Asking a question is a POST because it costs money and runs a query — it is
  * not a safe, cacheable read, whatever the shape of the response suggests.
  */
+@ApiTags('chat')
+@ApiSecurity('api-key')
 @Controller('chat')
 export class ChatController {
   constructor(
@@ -39,6 +42,11 @@ export class ChatController {
    * answer that" and "the query was refused" are answers, not transport
    * failures, and the body's `status` says which happened.
    */
+  @ApiOperation({
+    summary: 'Ask a question',
+    description:
+      'Generates SQL, checks it is a bounded read-only query, runs it and returns the rows. Answers 200 for every outcome the pipeline reached, including a refusal — read the status field.',
+  })
   @Post('ask')
   @HttpCode(HttpStatus.OK)
   askQuestion(@Body() body: AskDto): Promise<AskResponse> {
@@ -50,17 +58,20 @@ export class ChatController {
   }
 
   /** Start a conversation without asking anything yet. */
+  @ApiOperation({ summary: 'Start a conversation' })
   @Post('sessions')
   createSession(): Conversation {
     return this.conversations.create();
   }
 
   /** The turns so far, oldest first. */
+  @ApiOperation({ summary: 'Conversation history' })
   @Get('sessions/:id')
   getSession(@Param() params: ConversationParams): Conversation {
     return this.conversations.get(params.id);
   }
 
+  @ApiOperation({ summary: 'Discard a conversation' })
   @Delete('sessions/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteSession(@Param() params: ConversationParams): void {
@@ -68,6 +79,7 @@ export class ChatController {
   }
 
   /** Recent queries, newest first — the audit trail. */
+  @ApiOperation({ summary: 'Recent queries, newest first' })
   @Get('audit')
   recentQueries(@Query('limit') limit?: string): QueryAuditEntry[] {
     const parsed = Number.parseInt(limit ?? '', 10);

@@ -2,10 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { QueryExecutorService } from '../execution/query-executor.service';
 import { ResultFormatterService } from '../execution/result-formatter.service';
 import { QueryAuditService } from '../execution/query-audit.service';
-import {
-  QueryExecutionError,
-  QueryResult,
-} from '../execution/execution.types';
+import { QueryExecutionError, QueryResult } from '../execution/execution.types';
 import { Violation } from '../sql-safety/sql-validation.types';
 import { SqlGenerationService } from './sql-generation.service';
 import { SqlGeneration } from './nl-to-sql.types';

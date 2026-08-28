@@ -113,9 +113,9 @@ describe('ResultFormatterService', () => {
     });
 
     it('says nothing matched rather than reporting zero rows', () => {
-      expect(
-        service.summarize(result({ rows: [], rowCount: 0 })),
-      ).toBe('No rows matched.');
+      expect(service.summarize(result({ rows: [], rowCount: 0 }))).toBe(
+        'No rows matched.',
+      );
     });
 
     it('warns when the answer was cut off at the cap', () => {

@@ -4,7 +4,9 @@ import { QueryExecutorService } from './query-executor.service';
 import { QueryExecutionError } from './execution.types';
 import { ValidatedSql } from '../sql-safety/sql-validation.types';
 
-const validated = (sql = 'SELECT id FROM customers LIMIT 500'): ValidatedSql => ({
+const validated = (
+  sql = 'SELECT id FROM customers LIMIT 500',
+): ValidatedSql => ({
   sql,
   original: sql,
   tables: ['customers'],
@@ -59,9 +61,12 @@ describe('QueryExecutorService', () => {
     service = build();
   });
 
+  /** Typed view of the statements issued, so assertions are not `any`. */
+  const issued = (): string[] =>
+    (query.mock.calls as unknown as [string][]).map((call) => call[0]);
+
   /** Statements issued before the query itself. */
-  const preamble = () =>
-    query.mock.calls.slice(0, 2).map((call) => String(call[0]));
+  const preamble = () => issued().slice(0, 2);
 
   it('marks the transaction read-only before running anything', async () => {
     await service.execute(validated());
@@ -93,9 +98,7 @@ describe('QueryExecutorService', () => {
       original: 'SELECT id FROM customers',
     });
 
-    expect(String(query.mock.calls[2][0])).toBe(
-      'SELECT id FROM customers LIMIT 500',
-    );
+    expect(issued()[2]).toBe('SELECT id FROM customers LIMIT 500');
   });
 
   it('rolls back rather than committing, since nothing should have changed', async () => {

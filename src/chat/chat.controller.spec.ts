@@ -11,6 +11,16 @@ import { ConversationService } from '../nl-to-sql/conversation.service';
 import { QueryAuditService } from '../execution/query-audit.service';
 import { ApiKeyGuard } from '../common/guards/api-key.guard';
 
+/** Response bodies these tests read, so assertions are not `any`. */
+interface AskBody {
+  status: string;
+  summary?: string;
+}
+interface SessionBody {
+  id: string;
+  turns: unknown[];
+}
+
 /**
  * Drives the controller over real HTTP with the pipeline mocked out, so these
  * cover the HTTP contract — routes, status codes, request validation, auth and
@@ -69,9 +79,7 @@ describe('ChatController (HTTP)', () => {
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
-      imports: [
-        ThrottlerModule.forRoot([{ ttl: 60000, limit: rateLimit }]),
-      ],
+      imports: [ThrottlerModule.forRoot([{ ttl: 60000, limit: rateLimit }])],
       controllers: [ChatController],
       providers: [
         { provide: AskService, useValue: { ask } },
@@ -123,8 +131,9 @@ describe('ChatController (HTTP)', () => {
         .send({ question: 'How many customers?' })
         .expect(200);
 
-      expect(response.body.status).toBe('answered');
-      expect(response.body.summary).toBe('count: 5');
+      const body = response.body as AskBody;
+      expect(body.status).toBe('answered');
+      expect(body.summary).toBe('count: 5');
     });
 
     it('passes the conversation id through so follow-ups continue', async () => {
@@ -160,7 +169,7 @@ describe('ChatController (HTTP)', () => {
         .send({ question: 'delete everything' })
         .expect(200);
 
-      expect(response.body.status).toBe('rejected');
+      expect((response.body as AskBody).status).toBe('rejected');
     });
 
     describe('request validation', () => {
@@ -218,7 +227,7 @@ describe('ChatController (HTTP)', () => {
         .post('/chat/sessions')
         .expect(201);
 
-      expect(response.body.id).toBe(answered.conversationId);
+      expect((response.body as SessionBody).id).toBe(answered.conversationId);
     });
 
     it('returns the history', async () => {
@@ -230,9 +239,7 @@ describe('ChatController (HTTP)', () => {
     });
 
     it('rejects a malformed id', async () => {
-      await request(app.getHttpServer())
-        .get('/chat/sessions/nope')
-        .expect(400);
+      await request(app.getHttpServer()).get('/chat/sessions/nope').expect(400);
     });
 
     it('deletes a conversation', async () => {

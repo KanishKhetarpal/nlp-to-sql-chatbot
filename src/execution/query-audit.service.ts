@@ -24,7 +24,10 @@ export class QueryAuditService {
   }
 
   record(entry: Omit<QueryAuditEntry, 'at'>): QueryAuditEntry {
-    const recorded: QueryAuditEntry = { at: new Date().toISOString(), ...entry };
+    const recorded: QueryAuditEntry = {
+      at: new Date().toISOString(),
+      ...entry,
+    };
 
     this.entries.push(recorded);
     if (this.entries.length > this.limit) {

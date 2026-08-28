@@ -7,6 +7,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { CacheStatus } from './schema-cache.service';
 import { SchemaSerializerService } from './schema-serializer.service';
 import { SchemaService } from './schema.service';
@@ -26,6 +27,7 @@ interface SchemaResponse extends DatabaseSchema {
  * arrive with the chat API, and it is not worth half-introducing them for
  * three optional flags.
  */
+@ApiTags('schema')
 @Controller('schema')
 export class SchemaController {
   constructor(
