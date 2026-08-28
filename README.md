@@ -9,9 +9,7 @@ handing an LLM unchecked access to a database. Generated SQL is parsed and
 validated before it runs, execution is restricted to read-only queries under a
 row limit and timeout, and every query is logged.
 
-> **Status:** in active development against a 7-day plan — see
-> [`MILESTONES.md`](MILESTONES.md). Days 1–4 are complete: project foundations,
-> schema introspection, natural-language-to-SQL generation, and query safety.
+> **Status:** complete against the 7-day plan in [`MILESTONES.md`](MILESTONES.md).
 
 ## How it works
 
@@ -29,8 +27,7 @@ results ◀── execution (read-only) ◀── validation ◀───── 
 5. **Execute** — run it on a read-only connection with a timeout and row cap.
 6. **Respond** — return the rows plus a natural-language summary.
 
-Steps 1–4 are built. Steps 5–6 land on Day 5. Until then the service proposes a
-query, judges whether it is safe, and stops — nothing is executed.
+All six steps are built and reachable over HTTP.
 
 ### Schema context
 
@@ -126,6 +123,38 @@ what is wrong at once:
   ]
 }
 ```
+
+### Execution
+
+A query that passes review runs inside a transaction that is explicitly marked
+read-only and given a statement timeout:
+
+```sql
+SET LOCAL transaction_read_only = on;
+SET LOCAL statement_timeout = 10000;
+```
+
+That is the second lock on the same door. Validation has already refused
+anything that writes, so this is what catches a write that reaches execution
+through a parser gap or a future bug — the database refuses it rather than
+trusting the check upstream was perfect. `SET LOCAL` scopes both settings to
+the transaction, so neither leaks onto the next borrower of a pooled
+connection. The transaction is rolled back rather than committed, since a read
+has nothing to commit.
+
+Results are summarized deterministically, not by a second model call:
+
+```
+count: 5
+2 rows, 2 columns (id, country).
+No rows matched.
+```
+
+Every query is audited — including the ones refused before reaching the
+database, and dry runs that never execute. The trail is written to the log and
+kept in a bounded ring readable at `GET /chat/audit`. It is deliberately not
+written to the target database, which is read-only by design and belongs to
+someone else.
 
 ### Provider independence
 
@@ -234,12 +263,63 @@ curl http://localhost:3000/schema/prompt
 
 ## API
 
-| Endpoint               | Description                                            |
-| ---------------------- | ------------------------------------------------------ |
-| `GET /health`          | Liveness plus a database ping; `503` when Postgres is down |
-| `GET /schema`          | Full metadata snapshot as JSON, with cache status       |
-| `GET /schema/prompt`   | The same snapshot as prompt-ready DDL (`text/plain`)    |
-| `POST /schema/refresh` | Drop the cached snapshot and re-read the catalogs       |
+Interactive documentation is served at `http://localhost:3000/docs`.
+
+| Endpoint                     | Description                                             |
+| ---------------------------- | ------------------------------------------------------- |
+| `POST /chat/ask`             | Ask a question; returns the SQL, the rows and a summary  |
+| `POST /chat/sessions`        | Start a conversation                                     |
+| `GET /chat/sessions/:id`     | The turns so far                                         |
+| `DELETE /chat/sessions/:id`  | Discard a conversation                                   |
+| `GET /chat/audit`            | Recent queries, newest first                             |
+| `GET /health`                | Liveness plus a database ping; `503` when Postgres is down |
+| `GET /schema`                | Full metadata snapshot as JSON, with cache status         |
+| `GET /schema/prompt`         | The same snapshot as prompt-ready DDL (`text/plain`)      |
+| `POST /schema/refresh`       | Drop the cached snapshot and re-read the catalogs         |
+
+### Asking a question
+
+```bash
+curl -X POST http://localhost:3000/chat/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "How many customers are in the United Kingdom?"}'
+```
+
+```json
+{
+  "status": "answered",
+  "conversationId": "d6a252cb-4d21-41c5-b189-b106cce6c32a",
+  "sql": "SELECT count(*) FROM customers WHERE country = 'United Kingdom' LIMIT 500",
+  "summary": "count: 2",
+  "result": { "columns": ["count"], "rows": [{ "count": 2 }], "rowCount": 1 },
+  "model": "claude-opus-5"
+}
+```
+
+`status` is the field to read. `answered` means rows came back; `unanswerable`
+means the schema cannot answer it; `rejected` means the generated query failed
+safety review and `violations` says why; `failed` means the database refused or
+timed out; `dry_run` means it stopped before executing. All of them return
+`200` — they are answers, not transport failures.
+
+Pass `conversationId` to continue a conversation, or `dryRun: true` to see the
+query without running it.
+
+### Access control
+
+With `API_KEYS` set, every route except `/health` requires a matching
+`x-api-key` header:
+
+```bash
+curl -X POST http://localhost:3000/chat/ask \
+  -H 'x-api-key: your-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"question": "How many orders shipped last month?"}'
+```
+
+Leaving `API_KEYS` empty leaves the API open, which is convenient locally and
+must not be how it ships — the service warns about it at boot. Requests are
+also rate limited per client (`RATE_LIMIT` per `RATE_LIMIT_WINDOW` seconds).
 
 Both schema reads accept `?refresh=true` to bypass the cache for a single
 call. `GET /schema/prompt` additionally takes:
@@ -306,6 +386,16 @@ Query safety:
 | `SQL_ALLOWED_TABLES`  | —       | Comma-separated; empty means every introspected table |
 | `SQL_DENIED_TABLES`   | —       | Comma-separated; checked before the allow list        |
 
+Execution and API:
+
+| Variable               | Default | Description                                   |
+| ---------------------- | ------- | --------------------------------------------- |
+| `EXECUTION_TIMEOUT_MS` | `10000` | Statement timeout, enforced by Postgres        |
+| `AUDIT_HISTORY`        | `200`   | Audit entries kept in memory                   |
+| `API_KEYS`             | —       | Comma-separated; empty leaves the API open     |
+| `RATE_LIMIT`           | `30`    | Requests per window, per client                |
+| `RATE_LIMIT_WINDOW`    | `60`    | Window length in seconds                       |
+
 ## Project structure
 
 ```
@@ -318,11 +408,13 @@ src/
 ├── llm/          # provider-agnostic client + Anthropic and stub backends
 ├── nl-to-sql/    # prompt construction, conversations, SQL generation
 ├── sql-safety/   # parser-based validation, table rules, row limits
+├── execution/    # read-only execution, result formatting, audit trail
+├── chat/         # HTTP surface: ask, sessions, audit
+├── common/       # guards, decorators, exception filter
 └── main.ts       # bootstrap
 ```
 
-The chat endpoints that expose generation over HTTP arrive on Day 6; for now
-`SqlGenerationService` is consumed in-process.
+
 
 ## Scripts
 
@@ -335,6 +427,43 @@ npm run test:e2e     # end-to-end tests
 npm run test:cov     # coverage report
 ```
 
+## Deployment
+
+The image is multi-stage: dev dependencies compile the app and are then pruned,
+so they never reach the runtime layer. It runs as the unprivileged `node` user
+and carries a healthcheck that uses the app's own readiness endpoint.
+
+```bash
+docker build -t nlp-to-sql-chatbot .
+docker run -p 3000:3000 \
+  -e DB_HOST=host.docker.internal -e DB_PORT=5433 \
+  -e DB_USERNAME=postgres -e DB_PASSWORD=postgres -e DB_NAME=nlp_to_sql \
+  nlp-to-sql-chatbot
+```
+
+Before putting it in front of anyone else: set `API_KEYS`, point it at a
+database role that only has `SELECT` (the read-only transaction is a good
+guard, a restricted role is a better one), and set `LLM_PROVIDER=anthropic`
+with a key.
+
+## Testing
+
+```bash
+npm test           # unit and integration suites
+npm run test:e2e   # drives the whole app over HTTP
+npm run test:cov   # coverage
+```
+
+Tests that need Postgres skip themselves when none is reachable, so a clone
+without Docker running still gets an honest green rather than a wall of
+connection errors. Start the database to include them.
+
+207 tests across unit, integration and end-to-end suites; roughly 77% statement
+coverage. The integration and e2e suites run against a real database rather
+than a mock, because the guarantees that matter most — read-only enforcement,
+statement timeouts, and whether the rewritten SQL is even valid — belong to
+Postgres, and a mock would only assert that the code agrees with itself.
+
 ## Roadmap
 
 The full 7-day breakdown is in [`MILESTONES.md`](MILESTONES.md).
@@ -343,9 +472,9 @@ The full 7-day breakdown is in [`MILESTONES.md`](MILESTONES.md).
 - **Day 2** — schema introspection ✅
 - **Day 3** — NL-to-SQL generation ✅
 - **Day 4** — SQL validation and safety ✅
-- **Day 5** — query execution and results
-- **Day 6** — chat API and access control
-- **Day 7** — polish, docs, deployment
+- **Day 5** — query execution and results ✅
+- **Day 6** — chat API and access control ✅
+- **Day 7** — polish, docs, deployment ✅
 
 ## License
 
