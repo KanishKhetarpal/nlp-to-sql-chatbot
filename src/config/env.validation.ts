@@ -57,4 +57,9 @@ export const envValidationSchema = Joi.object({
   // Comma-separated. An empty allow list means every introspected table.
   SQL_ALLOWED_TABLES: Joi.string().allow('').default(''),
   SQL_DENIED_TABLES: Joi.string().allow('').default(''),
+
+  // Execution. The timeout is applied by the database itself, so a runaway
+  // query is cancelled server-side rather than left to finish unattended.
+  EXECUTION_TIMEOUT_MS: Joi.number().integer().min(100).max(120000).default(10000),
+  AUDIT_HISTORY: Joi.number().integer().min(1).max(10000).default(200),
 });

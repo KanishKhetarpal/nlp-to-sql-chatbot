@@ -50,6 +50,13 @@ export interface SqlSafetyConfig {
   deniedTables: string[];
 }
 
+export interface ExecutionConfig {
+  /** Statement timeout applied to every query, in milliseconds. */
+  timeoutMs: number;
+  /** Audit entries kept in memory for inspection. */
+  auditHistory: number;
+}
+
 export interface Configuration {
   app: AppConfig;
   database: DatabaseConfig;
@@ -57,6 +64,7 @@ export interface Configuration {
   llm: LlmConfig;
   conversation: ConversationConfig;
   sqlSafety: SqlSafetyConfig;
+  execution: ExecutionConfig;
 }
 
 const csv = (value: string | undefined): string[] =>
@@ -110,5 +118,9 @@ export default (): Configuration => ({
     maxRows: parseInt(process.env.SQL_MAX_ROWS as string, 10),
     allowedTables: csv(process.env.SQL_ALLOWED_TABLES),
     deniedTables: csv(process.env.SQL_DENIED_TABLES),
+  },
+  execution: {
+    timeoutMs: parseInt(process.env.EXECUTION_TIMEOUT_MS as string, 10),
+    auditHistory: parseInt(process.env.AUDIT_HISTORY as string, 10),
   },
 });
