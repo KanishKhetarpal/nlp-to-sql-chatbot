@@ -1,5 +1,7 @@
 # NLP-to-SQL Chatbot
 
+[![CI](https://github.com/KanishKhetarpal/nlp-to-sql-chatbot/actions/workflows/ci.yml/badge.svg)](https://github.com/KanishKhetarpal/nlp-to-sql-chatbot/actions/workflows/ci.yml)
+
 A NestJS service that takes natural-language questions, turns them into safe,
 validated SQL against a configured database, executes them, and returns the
 results in a chat-style interface.
@@ -422,6 +424,8 @@ src/
 npm run start:dev    # watch mode
 npm run build        # compile to dist/
 npm run lint         # eslint --fix
+npm run lint:check   # eslint, no fixing — what CI runs
+npm run typecheck    # tsc --noEmit
 npm test             # unit tests
 npm run test:e2e     # end-to-end tests
 npm run test:cov     # coverage report
@@ -456,13 +460,31 @@ npm run test:cov   # coverage
 
 Tests that need Postgres skip themselves when none is reachable, so a clone
 without Docker running still gets an honest green rather than a wall of
-connection errors. Start the database to include them.
+connection errors. Start the database to include them. They are reported as
+*skipped* rather than passed — the decision is made in a Jest global setup,
+before the suites load, because a test that returns early still counts as a
+pass and nine passes that asserted nothing is not an honest run.
 
 207 tests across unit, integration and end-to-end suites; roughly 77% statement
 coverage. The integration and e2e suites run against a real database rather
 than a mock, because the guarantees that matter most — read-only enforcement,
 statement timeouts, and whether the rewritten SQL is even valid — belong to
 Postgres, and a mock would only assert that the code agrees with itself.
+
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every push to
+`main` and every pull request: lint, typecheck, build, then both test suites
+against a Postgres service container seeded from `db/init`.
+
+Two details are deliberate. The lint step runs `lint:check` rather than `lint`,
+because the latter passes `--fix` and would report success on code that never
+satisfied the rules. And a database that is unreachable *fails* the run instead
+of skipping, since the whole point of the pipeline is to vouch for tests that
+actually executed — locally the same absence is still just a skip.
+
+Generation runs against the stub provider, so no API key is needed; every other
+layer is exercised for real.
 
 ## Roadmap
 
