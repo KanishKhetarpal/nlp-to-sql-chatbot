@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A superseded run tells you nothing, so let a new push cancel the old one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, typecheck, test
+    runs-on: ubuntu-latest
+
+    # The integration and e2e suites talk to a real Postgres on purpose: the
+    # read-only transaction, the statement timeout and the SQLSTATE codes the
+    # executor branches on all belong to the database, not to this code.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nlp_to_sql
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d nlp_to_sql"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: nlp_to_sql
+      # No credentials on a build server, so generation stays canned. Every
+      # other layer — validation, execution, formatting — is exercised for real.
+      LLM_PROVIDER: stub
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # A service container cannot mount the repository — it starts before the
+      # checkout — so the sample schema is applied as a step instead of through
+      # the entrypoint directory Compose uses locally.
+      - name: Seed the sample schema
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d nlp_to_sql \
+            -v ON_ERROR_STOP=1 -f db/init/01-sample-schema.sql
+
+      # Not `npm run lint`, which passes --fix: a lint step that repairs the
+      # working copy reports success on code that never satisfied the rules.
+      - name: Lint
+        run: npm run lint:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Unit and integration tests
+        run: npm run test:cov
+
+      - name: End-to-end tests
+        run: npm run test:e2e
