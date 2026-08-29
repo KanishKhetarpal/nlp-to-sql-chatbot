@@ -19,27 +19,15 @@ import { DatabaseSchema } from '../schema/schema.types';
  * this code. A mock would only assert that we agree with ourselves.
  *
  * Skipped when no database is reachable, so a clone without Docker running
- * still gets a green suite rather than a wall of connection errors.
+ * still gets a green suite rather than a wall of connection errors. Under CI
+ * that same absence is a failure instead — see `requireDatabaseInCi`.
  */
-const canConnect = async (): Promise<boolean> => {
-  const probe = new DataSource({
-    type: 'postgres',
-    host: process.env.DB_HOST ?? 'localhost',
-    port: parseInt(process.env.DB_PORT ?? '5433', 10),
-    username: process.env.DB_USERNAME ?? 'postgres',
-    password: process.env.DB_PASSWORD ?? 'postgres',
-    database: process.env.DB_NAME ?? 'nlp_to_sql',
-    connectTimeoutMS: 2000,
-  });
-
-  try {
-    await probe.initialize();
-    await probe.destroy();
-    return true;
-  } catch {
-    return false;
-  }
-};
+/**
+ * Whether the global setup found a database. Read at declaration time, so a
+ * run without one reports these tests as skipped instead of as nine passes
+ * that asserted nothing.
+ */
+const available = process.env.DATABASE_AVAILABLE === 'true';
 
 describe('execution pipeline (integration)', () => {
   let moduleRef: TestingModule | undefined;
@@ -47,15 +35,9 @@ describe('execution pipeline (integration)', () => {
   let executor: QueryExecutorService;
   let formatter: ResultFormatterService;
   let schema: DatabaseSchema;
-  let available = false;
 
   beforeAll(async () => {
-    available = await canConnect();
     if (!available) {
-      console.warn(
-        'Skipping execution integration tests: no database reachable. ' +
-          'Run `docker compose up -d --wait` to include them.',
-      );
       return;
     }
 
@@ -84,17 +66,8 @@ describe('execution pipeline (integration)', () => {
   const run = async (sql: string) =>
     executor.execute(validator.validate(sql, schema));
 
-  const maybe = (name: string, fn: () => Promise<void>, timeout?: number) =>
-    it(
-      name,
-      async () => {
-        if (!available) {
-          return;
-        }
-        await fn();
-      },
-      timeout,
-    );
+  /** Registers a test only when a database is available. */
+  const maybe = available ? it : it.skip;
 
   maybe('runs a validated query and returns real rows', async () => {
     const result = await run('SELECT id, country FROM customers');

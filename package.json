@@ -78,6 +78,11 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "coveragePathIgnorePatterns": [
+      "/node_modules/",
+      "/testing/"
+    ],
+    "testEnvironment": "node",
+    "globalSetup": "<rootDir>/testing/jest-global-setup.ts"
   }
 }

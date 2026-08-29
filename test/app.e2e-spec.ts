@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { DataSource } from 'typeorm';
 import { AppModule } from './../src/app.module';
 import { AllExceptionsFilter } from './../src/common/filters/all-exceptions.filter';
 
@@ -39,38 +38,21 @@ interface ErrorBody {
  * real database — the closest thing to running it for real.
  *
  * Skipped when no database is reachable, so `npm run test:e2e` on a clone
- * without Docker running reports honestly instead of failing to boot.
+ * without Docker running reports honestly instead of failing to boot. Under
+ * CI that same absence is a failure instead — see `requireDatabaseInCi`.
  */
-const canConnect = async (): Promise<boolean> => {
-  const probe = new DataSource({
-    type: 'postgres',
-    host: process.env.DB_HOST ?? 'localhost',
-    port: parseInt(process.env.DB_PORT ?? '5433', 10),
-    username: process.env.DB_USERNAME ?? 'postgres',
-    password: process.env.DB_PASSWORD ?? 'postgres',
-    database: process.env.DB_NAME ?? 'nlp_to_sql',
-    connectTimeoutMS: 2000,
-  });
-
-  try {
-    await probe.initialize();
-    await probe.destroy();
-    return true;
-  } catch {
-    return false;
-  }
-};
+/**
+ * Whether the global setup found a database. Read at declaration time, so a
+ * run without one reports these tests as skipped instead of as nine passes
+ * that asserted nothing.
+ */
+const available = process.env.DATABASE_AVAILABLE === 'true';
 
 describe('Chat flow (e2e)', () => {
   let app: INestApplication<App> | undefined;
-  let available = false;
 
   beforeAll(async () => {
-    available = await canConnect();
     if (!available) {
-      console.warn(
-        'Skipping e2e: no database reachable. Run `docker compose up -d --wait`.',
-      );
       return;
     }
 
@@ -96,17 +78,8 @@ describe('Chat flow (e2e)', () => {
 
   const server = () => request(app!.getHttpServer());
 
-  const maybe = (name: string, fn: () => Promise<void>, timeout?: number) =>
-    it(
-      name,
-      async () => {
-        if (!available) {
-          return;
-        }
-        await fn();
-      },
-      timeout,
-    );
+  /** Registers a test only when a database is available. */
+  const maybe = available ? it : it.skip;
 
   maybe('reports healthy with the database up', async () => {
     const response = await server().get('/health').expect(200);
