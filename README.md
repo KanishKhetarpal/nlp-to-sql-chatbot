@@ -465,9 +465,13 @@ connection errors. Start the database to include them. They are reported as
 before the suites load, because a test that returns early still counts as a
 pass and nine passes that asserted nothing is not an honest run.
 
-207 tests across unit, integration and end-to-end suites; roughly 77% statement
-coverage. The integration and e2e suites run against a real database rather
-than a mock, because the guarantees that matter most — read-only enforcement,
+241 tests across unit, integration and end-to-end suites; roughly 83%
+statement coverage. Both figures are the ones CI reports, where the
+database-backed suites actually run — measuring locally without Postgres
+would quietly leave them out and report a floor.
+
+The integration and e2e suites run against a real database rather than a
+mock, because the guarantees that matter most — read-only enforcement,
 statement timeouts, and whether the rewritten SQL is even valid — belong to
 Postgres, and a mock would only assert that the code agrees with itself.
 
@@ -497,6 +501,11 @@ The full 7-day breakdown is in [`MILESTONES.md`](MILESTONES.md).
 - **Day 5** — query execution and results ✅
 - **Day 6** — chat API and access control ✅
 - **Day 7** — polish, docs, deployment ✅
+
+Since then, outside the plan: continuous integration on every push, and
+coverage for the pipeline's refusal and failure paths — the branches the
+end-to-end suite cannot reach, because it cannot force a timeout or a
+rejection on demand.
 
 ## License
 
