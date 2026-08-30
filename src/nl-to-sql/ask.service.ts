@@ -177,6 +177,20 @@ export class AskService {
         };
       }
 
+      // Anything else is a bug rather than a refusal, so it is rethrown for
+      // the exception filter to turn into a 500. It is recorded first: an
+      // unexpected failure is still an outcome, and it is the one a trail is
+      // most useful for. Without this the statement that crashed the process
+      // would be the only question in the day with no line explaining it.
+      this.audit.record({
+        conversationId: base.conversationId,
+        question: request.question,
+        sql,
+        tables,
+        outcome: 'failed',
+        reason: 'unexpected_error',
+      });
+
       throw error;
     }
   }

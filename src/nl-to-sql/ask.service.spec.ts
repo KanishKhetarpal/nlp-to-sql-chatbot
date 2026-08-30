@@ -278,4 +278,29 @@ describe('AskService', () => {
       });
     });
   });
+
+  describe('when something unexpected goes wrong', () => {
+    beforeEach(() => {
+      generate.mockResolvedValue(generated());
+      execute.mockRejectedValue(new TypeError('connection pool is undefined'));
+    });
+
+    it('rethrows, because a bug is not a refusal', async () => {
+      await expect(
+        service.ask({ question: 'Show me customers' }),
+      ).rejects.toThrow('connection pool is undefined');
+    });
+
+    it('records it before rethrowing, so the trail has no silent gap', async () => {
+      await expect(
+        service.ask({ question: 'Show me customers' }),
+      ).rejects.toThrow();
+
+      expect(audited()).toMatchObject({
+        outcome: 'failed',
+        reason: 'unexpected_error',
+        sql: 'SELECT id FROM customers LIMIT 500',
+      });
+    });
+  });
 });
