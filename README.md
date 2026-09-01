@@ -476,7 +476,7 @@ connection errors. Start the database to include them. They are reported as
 before the suites load, because a test that returns early still counts as a
 pass and nine passes that asserted nothing is not an honest run.
 
-269 tests across unit, integration and end-to-end suites; roughly 90%
+285 tests across unit, integration and end-to-end suites; roughly 90%
 statement coverage. Both figures are the ones CI reports, where the
 database-backed suites actually run — measuring locally without Postgres
 would quietly leave them out and report a floor.
