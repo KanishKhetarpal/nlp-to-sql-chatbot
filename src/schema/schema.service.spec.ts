@@ -2,13 +2,25 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { SchemaCacheService } from './schema-cache.service';
 import { SchemaIntrospectionService } from './schema-introspection.service';
+import { SchemaSerializerService } from './schema-serializer.service';
 import { SchemaService } from './schema.service';
 import { DatabaseSchema } from './schema.types';
 
-const snapshot = (marker: string): DatabaseSchema => ({
+const table = (name: string): DatabaseSchema['tables'][number] => ({
+  schema: 'public',
+  name,
+  kind: 'table',
+  comment: null,
+  columns: [],
+  primaryKey: [],
+  foreignKeys: [],
+  uniqueConstraints: [],
+});
+
+const snapshot = (marker: string, names: string[] = []): DatabaseSchema => ({
   database: 'test_db',
   schemas: ['public'],
-  tables: [],
+  tables: names.map(table),
   introspectedAt: marker,
 });
 
@@ -17,8 +29,15 @@ describe('SchemaService', () => {
   let cache: SchemaCacheService;
   let introspect: jest.Mock;
 
-  const build = async (ttlSeconds: number): Promise<TestingModule> => {
-    introspect = jest.fn().mockResolvedValue(snapshot('first'));
+  const build = async (
+    ttlSeconds: number,
+    safety: { allowedTables: string[]; deniedTables: string[] } = {
+      allowedTables: [],
+      deniedTables: [],
+    },
+    tables: string[] = [],
+  ): Promise<TestingModule> => {
+    introspect = jest.fn().mockResolvedValue(snapshot('first', tables));
 
     return Test.createTestingModule({
       providers: [
@@ -28,10 +47,14 @@ describe('SchemaService', () => {
         {
           provide: ConfigService,
           useValue: {
-            get: jest.fn().mockReturnValue({
-              schemas: ['public'],
-              cacheTtlSeconds: ttlSeconds,
-            }),
+            // Key-aware: the service asks for two different sections, and a
+            // mock that answers both with the same object would let a wrong
+            // key pass unnoticed.
+            get: jest.fn((key: string) =>
+              key === 'sqlSafety'
+                ? safety
+                : { schemas: ['public'], cacheTtlSeconds: ttlSeconds },
+            ),
           },
         },
       ],
@@ -128,6 +151,85 @@ describe('SchemaService', () => {
         database: 'test_db',
       });
       expect(introspect).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('with a deny list configured', () => {
+    it('does not serve a denied table to any caller', async () => {
+      // Everything downstream — the prompt, GET /schema — reads through this
+      // service, so hiding it here hides it everywhere.
+      const module = await build(
+        300,
+        { allowedTables: [], deniedTables: ['salaries'] },
+        ['customers', 'salaries', 'orders'],
+      );
+
+      const schema = await module.get(SchemaService).getSchema();
+
+      expect(schema.tables.map((row) => row.name)).toEqual([
+        'customers',
+        'orders',
+      ]);
+    });
+
+    it('keeps the full snapshot in cache, so the rules stay changeable', async () => {
+      const module = await build(
+        300,
+        { allowedTables: [], deniedTables: ['salaries'] },
+        ['customers', 'salaries'],
+      );
+      const service = module.get(SchemaService);
+
+      await service.getSchema();
+      await service.getSchema();
+
+      // Narrowing must not be applied to the cached object itself: a filter
+      // written in place would make the hiding permanent and irreversible.
+      expect(module.get(SchemaCacheService).get()?.tables).toHaveLength(2);
+    });
+
+    it('keeps the denied table out of the prompt DDL', async () => {
+      // The defect this closes: the deny list was consulted only at safety
+      // review, so a denied table's columns and comments were serialized
+      // into every prompt and sent to the model provider regardless.
+      const module = await build(
+        300,
+        { allowedTables: [], deniedTables: ['salaries'] },
+        ['customers', 'salaries'],
+      );
+
+      const schema = await module.get(SchemaService).getSchema();
+      const ddl = new SchemaSerializerService().serialize(schema);
+
+      expect(ddl).toContain('CREATE TABLE customers');
+      expect(ddl).not.toContain('salaries');
+    });
+
+    it('narrows a refreshed snapshot too', async () => {
+      const module = await build(
+        300,
+        { allowedTables: [], deniedTables: ['salaries'] },
+        ['customers', 'salaries'],
+      );
+      const service = module.get(SchemaService);
+
+      const refreshed = await service.refresh();
+
+      expect(refreshed.tables.map((row) => row.name)).toEqual(['customers']);
+    });
+  });
+
+  describe('with an allow list configured', () => {
+    it('serves only the tables on it', async () => {
+      const module = await build(
+        300,
+        { allowedTables: ['customers'], deniedTables: [] },
+        ['customers', 'salaries', 'orders'],
+      );
+
+      const schema = await module.get(SchemaService).getSchema();
+
+      expect(schema.tables.map((row) => row.name)).toEqual(['customers']);
     });
   });
 
