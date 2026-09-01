@@ -113,6 +113,17 @@ binds it to the first branch and leaves the rest of a `UNION` unbounded.
 The statement that comes back is rebuilt from the tree that was checked, so
 what would execute is what was validated — not the original text.
 
+The allow and deny lists are applied twice, in two different senses. A denied
+table is **hidden**: it is filtered out of the schema before anything is
+serialized, so it never appears in a prompt, is never sent to the model
+provider, and is not served by `GET /schema`. Foreign keys pointing at it are
+dropped with it, since `REFERENCES <hidden table>` would name it anyway. Safety
+review then rejects it independently, as a second gate on what actually runs.
+
+That matters for what a deny list means: hiding the table stops its column
+names and comments leaving the building at all, and stops the model proposing
+a query that was only ever going to be refused.
+
 A rejection carries every violation found, so the caller can explain all of
 what is wrong at once:
 
@@ -386,7 +397,7 @@ Query safety:
 | --------------------- | ------- | ---------------------------------------------------- |
 | `SQL_MAX_ROWS`        | `500`   | Hard row ceiling, applied by rewriting the query      |
 | `SQL_ALLOWED_TABLES`  | —       | Comma-separated; empty means every introspected table |
-| `SQL_DENIED_TABLES`   | —       | Comma-separated; checked before the allow list        |
+| `SQL_DENIED_TABLES`   | —       | Comma-separated; hidden from prompts, and refused if named |
 
 Execution and API:
 
