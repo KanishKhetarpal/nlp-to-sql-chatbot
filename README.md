@@ -334,6 +334,17 @@ Leaving `API_KEYS` empty leaves the API open, which is convenient locally and
 must not be how it ships — the service warns about it at boot. Requests are
 also rate limited per client (`RATE_LIMIT` per `RATE_LIMIT_WINDOW` seconds).
 
+Several keys mean several callers, and they are kept apart. A conversation
+belongs to the key that started it, and `GET /chat/audit` returns that key's
+own queries rather than everyone's — the trail names tables, columns and
+often values lifted straight from the question. Another caller's conversation
+answers `404`, not `403`: "it exists, but it is not yours" is itself
+something the caller did not know.
+
+The identifier behind that scoping is a hash of the key, so it can appear in
+logs and audit entries without the key itself doing so. With `API_KEYS` empty
+there is one implicit caller and nothing to separate.
+
 Both schema reads accept `?refresh=true` to bypass the cache for a single
 call. `GET /schema/prompt` additionally takes:
 
@@ -476,7 +487,7 @@ connection errors. Start the database to include them. They are reported as
 before the suites load, because a test that returns early still counts as a
 pass and nine passes that asserted nothing is not an honest run.
 
-285 tests across unit, integration and end-to-end suites; roughly 90%
+309 tests across unit, integration and end-to-end suites; roughly 90%
 statement coverage. Both figures are the ones CI reports, where the
 database-backed suites actually run — measuring locally without Postgres
 would quietly leave them out and report a floor.
