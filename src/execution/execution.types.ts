@@ -44,6 +44,8 @@ export class QueryExecutionError extends Error {
 export interface QueryAuditEntry {
   at: string;
   conversationId?: string;
+  /** Which API key asked. Undefined when no keys are configured. */
+  clientId?: string;
   question: string;
   /** The statement as executed, after validation rewrote it. */
   sql: string;

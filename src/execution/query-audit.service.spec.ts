@@ -100,8 +100,77 @@ describe('QueryAuditService', () => {
       expect(service.recent(2).map((row) => row.question)).toEqual(['c', 'b']);
     });
 
+    it('does not reorder the stored entries', () => {
+      // recent() reverses to put the newest first. Reversing the stored array
+      // rather than a copy would flip the ring itself, and the next caller
+      // would be handed the oldest entries as the newest.
+      const service = serviceWithLimit(10);
+      ['a', 'b', 'c'].forEach((question) =>
+        service.record(entry({ question })),
+      );
+
+      const first = service.recent().map((row) => row.question);
+      const second = service.recent().map((row) => row.question);
+
+      expect(first).toEqual(['c', 'b', 'a']);
+      expect(second).toEqual(first);
+    });
+
     it('is empty before anything has been asked', () => {
       expect(serviceWithLimit(10).recent()).toEqual([]);
+    });
+  });
+
+  describe('scoping to a client', () => {
+    const alice = entry({ question: 'alice', clientId: 'client-a' });
+    const bob = entry({ question: 'bob', clientId: 'client-b' });
+
+    it('shows a caller only their own questions', () => {
+      // The defect this closes: the trail was global, so any key holder could
+      // read every other caller's questions and the SQL they produced.
+      const service = serviceWithLimit(10);
+      service.record(alice);
+      service.record(bob);
+
+      expect(service.recent(50, 'client-a').map((row) => row.question)).toEqual(
+        ['alice'],
+      );
+    });
+
+    it('shows everything when the caller has no identity', () => {
+      // Open mode: no keys configured, one implicit caller, nothing to hide.
+      const service = serviceWithLimit(10);
+      service.record(alice);
+      service.record(bob);
+
+      expect(service.recent()).toHaveLength(2);
+    });
+
+    it('does not show unattributed entries to an identified caller', () => {
+      // "Unattributed" must not become a way to see everything.
+      const service = serviceWithLimit(10);
+      service.record(entry({ question: 'from nobody' }));
+
+      expect(service.recent(50, 'client-a')).toEqual([]);
+    });
+
+    it('applies the limit after narrowing, not before', () => {
+      // Filtering a page that was already cut would hand back fewer rows than
+      // asked for, and sometimes none at all.
+      const service = serviceWithLimit(10);
+      service.record(bob);
+      service.record(bob);
+      service.record(alice);
+      service.record(bob);
+
+      expect(service.recent(2, 'client-a')).toHaveLength(1);
+    });
+
+    it('records which client asked in the log line', () => {
+      const service = serviceWithLimit(10);
+      service.record(alice);
+
+      expect(JSON.parse(logged[0])).toMatchObject({ clientId: 'client-a' });
     });
   });
 
@@ -120,6 +189,19 @@ describe('QueryAuditService', () => {
         'd',
         'c',
       ]);
+    });
+
+    it('holds entries from every client, and separates them on the way out', () => {
+      // One ring for the process; the filtering is what keeps callers apart.
+      const service = serviceWithLimit(10);
+      service.record(entry({ question: 'alice one', clientId: 'client-a' }));
+      service.record(entry({ question: 'bob one', clientId: 'client-b' }));
+      service.record(entry({ question: 'alice two', clientId: 'client-a' }));
+
+      expect(service.size()).toBe(3);
+      expect(service.recent(50, 'client-a').map((row) => row.question)).toEqual(
+        ['alice two', 'alice one'],
+      );
     });
 
     it('still logs the entries it drops', () => {

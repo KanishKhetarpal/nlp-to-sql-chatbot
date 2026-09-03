@@ -16,6 +16,8 @@ export interface GenerateRequest {
   question: string;
   /** Continues an existing conversation; omit to start a new one. */
   conversationId?: string;
+  /** Which API key is asking, so the conversation belongs to that caller. */
+  clientId?: string;
 }
 
 /**
@@ -80,7 +82,10 @@ export class SqlGenerationService {
   ) {}
 
   async generate(request: GenerateRequest): Promise<GenerateResult> {
-    const conversation = this.conversations.resolve(request.conversationId);
+    const conversation = this.conversations.resolve(
+      request.conversationId,
+      request.clientId,
+    );
     const schema = await this.schemaService.getSchema();
 
     const prompt = this.promptBuilder.build({

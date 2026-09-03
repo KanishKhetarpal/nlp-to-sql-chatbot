@@ -15,6 +15,11 @@ export interface AskRequest {
    * what would run before it runs.
    */
   dryRun?: boolean;
+  /**
+   * Which API key is asking. Carried through so the conversation and the
+   * audit line belong to that caller and not to everyone.
+   */
+  clientId?: string;
 }
 
 export type AskStatus =
@@ -70,6 +75,7 @@ export class AskService {
     const generated = await this.generation.generate({
       question: request.question,
       conversationId: request.conversationId,
+      clientId: request.clientId,
     });
 
     const base = {
@@ -83,6 +89,7 @@ export class AskService {
       this.audit.record({
         conversationId: base.conversationId,
         question: request.question,
+        clientId: request.clientId,
         sql: '',
         tables: [],
         outcome: 'unanswerable',
@@ -96,6 +103,7 @@ export class AskService {
       this.audit.record({
         conversationId: base.conversationId,
         question: request.question,
+        clientId: request.clientId,
         sql: generated.generation.sql,
         tables: generated.generation.tables,
         outcome: 'rejected',
@@ -121,6 +129,7 @@ export class AskService {
       this.audit.record({
         conversationId: base.conversationId,
         question: request.question,
+        clientId: request.clientId,
         sql,
         tables,
         outcome: 'dry_run',
@@ -141,6 +150,7 @@ export class AskService {
       this.audit.record({
         conversationId: base.conversationId,
         question: request.question,
+        clientId: request.clientId,
         sql,
         tables,
         outcome: 'succeeded',
@@ -161,6 +171,7 @@ export class AskService {
         this.audit.record({
           conversationId: base.conversationId,
           question: request.question,
+          clientId: request.clientId,
           sql,
           tables,
           outcome: 'failed',
@@ -185,6 +196,7 @@ export class AskService {
       this.audit.record({
         conversationId: base.conversationId,
         question: request.question,
+        clientId: request.clientId,
         sql,
         tables,
         outcome: 'failed',

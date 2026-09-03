@@ -183,4 +183,90 @@ describe('ConversationService', () => {
       ttlSeconds: 120,
     });
   });
+
+  describe('ownership', () => {
+    const ALICE = 'client-aaaaaaaaaaaa';
+    const BOB = 'client-bbbbbbbbbbbb';
+
+    it('lets the owner read their own conversation', () => {
+      const service = build();
+      const created = service.create(ALICE);
+
+      expect(service.get(created.id, ALICE).id).toBe(created.id);
+    });
+
+    it('hides it from anyone else', () => {
+      const service = build();
+      const created = service.create(ALICE);
+
+      expect(() => service.get(created.id, BOB)).toThrow(NotFoundException);
+    });
+
+    it('says not found rather than forbidden', () => {
+      // "It exists, but it is not yours" is itself something the caller did
+      // not know a moment ago.
+      const service = build();
+      const created = service.create(ALICE);
+
+      let message = '';
+      try {
+        service.get(created.id, BOB);
+      } catch (error) {
+        message = (error as Error).message;
+      }
+
+      expect(message).toBe(`Conversation "${created.id}" not found or expired`);
+    });
+
+    it('refuses to delete a conversation it does not own', () => {
+      const service = build();
+      const created = service.create(ALICE);
+
+      expect(() => service.delete(created.id, BOB)).toThrow(NotFoundException);
+      expect(service.get(created.id, ALICE)).toBeDefined();
+    });
+
+    it('lets the owner delete it', () => {
+      const service = build();
+      const created = service.create(ALICE);
+
+      service.delete(created.id, ALICE);
+
+      expect(() => service.get(created.id, ALICE)).toThrow(NotFoundException);
+    });
+
+    it('leaves an unowned conversation reachable', () => {
+      // Created in open mode, before any key was configured: it must not
+      // become permanently inaccessible.
+      const service = build();
+      const created = service.create();
+
+      expect(service.get(created.id, ALICE).id).toBe(created.id);
+    });
+
+    it('imposes no check when the caller has no identity', () => {
+      const service = build();
+      const created = service.create(ALICE);
+
+      expect(service.get(created.id).id).toBe(created.id);
+    });
+
+    it('starts a new conversation for the caller when resolving without an id', () => {
+      const service = build();
+      const created = service.resolve(undefined, ALICE);
+
+      expect(() => service.get(created.id, BOB)).toThrow(NotFoundException);
+    });
+
+    it('forgets the owner when the conversation goes', () => {
+      // Otherwise the ownership map outlives the conversations it describes.
+      const service = build();
+      const created = service.create(ALICE);
+
+      service.delete(created.id, ALICE);
+      const reused = service.create(BOB);
+
+      expect(service.get(reused.id, BOB)).toBeDefined();
+    });
+  });
 });

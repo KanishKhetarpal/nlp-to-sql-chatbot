@@ -35,6 +35,7 @@ describe('ChatController (HTTP)', () => {
     delete: jest.Mock;
     resolve: jest.Mock;
   };
+  let audit: { recent: jest.Mock };
 
   const answered = {
     status: 'answered',
@@ -61,6 +62,7 @@ describe('ChatController (HTTP)', () => {
 
   const build = async (apiKeys: string[] = [], rateLimit = 1000) => {
     ask = jest.fn().mockResolvedValue(answered);
+    audit = { recent: jest.fn().mockReturnValue([{ at: 'now' }]) };
     conversations = {
       create: jest.fn().mockReturnValue({
         id: answered.conversationId,
@@ -84,10 +86,7 @@ describe('ChatController (HTTP)', () => {
       providers: [
         { provide: AskService, useValue: { ask } },
         { provide: ConversationService, useValue: conversations },
-        {
-          provide: QueryAuditService,
-          useValue: { recent: jest.fn().mockReturnValue([{ at: 'now' }]) },
-        },
+        { provide: QueryAuditService, useValue: audit },
         {
           provide: ConfigService,
           useValue: {
@@ -247,8 +246,11 @@ describe('ChatController (HTTP)', () => {
         .delete(`/chat/sessions/${answered.conversationId}`)
         .expect(204);
 
+      // Undefined owner: this suite runs with no API keys configured, which
+      // is the open mode where there is one implicit caller.
       expect(conversations.delete).toHaveBeenCalledWith(
         answered.conversationId,
+        undefined,
       );
     });
   });
@@ -322,6 +324,109 @@ describe('ChatController (HTTP)', () => {
         .set('x-api-key', 'secret')
         .send({ question: 'hi' })
         .expect(401);
+    });
+  });
+
+  describe('with several API keys configured', () => {
+    const KEY_A = 'key-alpha-0000000000';
+    const KEY_B = 'key-beta-00000000000';
+
+    /** The client id each call was scoped to. */
+    const auditScopes = (): (string | undefined)[] =>
+      (
+        audit.recent.mock.calls as unknown as [number, string | undefined][]
+      ).map((call) => call[1]);
+
+    beforeEach(async () => {
+      app = await build([KEY_A, KEY_B]);
+    });
+
+    const readAudit = (key: string) =>
+      request(app.getHttpServer())
+        .get('/chat/audit')
+        .set('x-api-key', key)
+        .expect(200);
+
+    it('scopes the audit trail to the caller', async () => {
+      // The defect this closes: the trail was global, so any key holder could
+      // read every other caller's questions and generated SQL.
+      await readAudit(KEY_A);
+
+      expect(auditScopes()[0]).toBeDefined();
+    });
+
+    it('tells one caller from another', async () => {
+      await readAudit(KEY_A);
+      await readAudit(KEY_B);
+
+      const [first, second] = auditScopes();
+      expect(first).not.toEqual(second);
+    });
+
+    it('gives one caller the same identity on every request', async () => {
+      await readAudit(KEY_A);
+      await readAudit(KEY_A);
+
+      const [first, second] = auditScopes();
+      expect(first).toEqual(second);
+    });
+
+    it('never derives the identifier from the key in a readable way', async () => {
+      // It reaches logs and audit entries, so it must not be the secret.
+      await readAudit(KEY_A);
+
+      expect(auditScopes()[0]).not.toContain(KEY_A);
+    });
+
+    it('scopes a conversation read to the caller', async () => {
+      await request(app.getHttpServer())
+        .get(`/chat/sessions/${answered.conversationId}`)
+        .set('x-api-key', KEY_A)
+        .expect(200);
+
+      const calls = conversations.get.mock.calls as unknown as [
+        string,
+        string | undefined,
+      ][];
+      expect(calls[0][0]).toBe(answered.conversationId);
+      expect(calls[0][1]).toBeDefined();
+    });
+
+    it('records the owner when a conversation is started', async () => {
+      await request(app.getHttpServer())
+        .post('/chat/sessions')
+        .set('x-api-key', KEY_B)
+        .expect(201);
+
+      const calls = conversations.create.mock.calls as unknown as [
+        string | undefined,
+      ][];
+      expect(calls[0][0]).toBeDefined();
+    });
+
+    it('carries the caller through to the question it asks', async () => {
+      await request(app.getHttpServer())
+        .post('/chat/ask')
+        .set('x-api-key', KEY_A)
+        .send({ question: 'How many customers?' })
+        .expect(200);
+
+      const calls = ask.mock.calls as unknown as [{ clientId?: string }][];
+      expect(calls[0][0].clientId).toBeDefined();
+    });
+  });
+
+  describe('with no API keys configured', () => {
+    it('leaves every call unscoped, because there is one caller', async () => {
+      app = await build([]);
+
+      await request(app.getHttpServer()).get('/chat/audit').expect(200);
+
+      const calls = audit.recent.mock.calls as unknown as [
+        number,
+        string | undefined,
+      ][];
+      expect(calls[0][1]).toBeUndefined();
     });
   });
 

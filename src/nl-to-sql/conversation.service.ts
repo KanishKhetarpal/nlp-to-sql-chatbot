@@ -16,18 +16,25 @@ import { Conversation, ConversationTurn } from './nl-to-sql.types';
  * Three bounds keep that map from growing without limit: a TTL per
  * conversation, a cap on turns kept per conversation, and a cap on how many
  * conversations exist at once.
+ *
+ * A conversation belongs to whoever started it. The owner is held beside the
+ * conversation rather than on it, so it is never serialized into a response:
+ * the identifier is derived from an API key and has no business being echoed
+ * back to anyone.
  */
 @Injectable()
 export class ConversationService {
   private readonly logger = new Logger(ConversationService.name);
   private readonly conversations = new Map<string, Conversation>();
+  /** Conversation id to the client that created it. Never sent to a caller. */
+  private readonly owners = new Map<string, string>();
   private readonly config: ConversationConfig;
 
   constructor(configService: ConfigService) {
     this.config = configService.get<ConversationConfig>('conversation')!;
   }
 
-  create(): Conversation {
+  create(ownerId?: string): Conversation {
     this.evictExpired();
     this.evictOverflow();
 
@@ -40,17 +47,34 @@ export class ConversationService {
     };
 
     this.conversations.set(conversation.id, conversation);
+    if (ownerId) {
+      this.owners.set(conversation.id, ownerId);
+    }
     return conversation;
   }
 
-  /** Returns the conversation, or throws if it is unknown or expired. */
-  get(id: string): Conversation {
+  /**
+   * Returns the conversation, or throws if it is unknown, expired, or owned
+   * by someone else.
+   *
+   * `ownerId` is undefined for internal callers and in open mode, where there
+   * is one implicit client and nothing to tell apart.
+   *
+   * Someone else's conversation is reported as not found rather than
+   * forbidden. "It exists, but it is not yours" is itself something the
+   * caller did not know a moment ago.
+   */
+  get(id: string, ownerId?: string): Conversation {
     const conversation = this.conversations.get(id);
 
     if (!conversation || this.isExpired(conversation)) {
       if (conversation) {
-        this.conversations.delete(id);
+        this.forget(id);
       }
+      throw new NotFoundException(`Conversation "${id}" not found or expired`);
+    }
+
+    if (ownerId && !this.isOwnedBy(id, ownerId)) {
       throw new NotFoundException(`Conversation "${id}" not found or expired`);
     }
 
@@ -61,8 +85,16 @@ export class ConversationService {
    * Returns the conversation for `id`, or a fresh one when `id` is undefined.
    * Lets a caller treat "continue this thread" and "start a new one" the same.
    */
-  resolve(id?: string): Conversation {
-    return id ? this.get(id) : this.create();
+  resolve(id?: string, ownerId?: string): Conversation {
+    return id ? this.get(id, ownerId) : this.create(ownerId);
+  }
+
+  private isOwnedBy(id: string, ownerId: string): boolean {
+    const owner = this.owners.get(id);
+
+    // A conversation created before any key was configured has no owner, and
+    // stays reachable rather than becoming permanently inaccessible.
+    return owner === undefined || owner === ownerId;
   }
 
   /** Appends a turn, trimming the oldest once the per-conversation cap is hit. */
@@ -87,10 +119,22 @@ export class ConversationService {
     return conversation;
   }
 
-  delete(id: string): void {
+  delete(id: string, ownerId?: string): void {
+    if (ownerId && this.conversations.has(id) && !this.isOwnedBy(id, ownerId)) {
+      throw new NotFoundException(`Conversation "${id}" not found`);
+    }
+
     if (!this.conversations.delete(id)) {
       throw new NotFoundException(`Conversation "${id}" not found`);
     }
+
+    this.owners.delete(id);
+  }
+
+  /** Drops a conversation and the ownership record beside it. */
+  private forget(id: string): void {
+    this.conversations.delete(id);
+    this.owners.delete(id);
   }
 
   stats(): { active: number; maxSessions: number; ttlSeconds: number } {
@@ -111,7 +155,7 @@ export class ConversationService {
   private evictExpired(): void {
     for (const [id, conversation] of this.conversations) {
       if (this.isExpired(conversation)) {
-        this.conversations.delete(id);
+        this.forget(id);
       }
     }
   }
@@ -124,7 +168,7 @@ export class ConversationService {
         return;
       }
 
-      this.conversations.delete(oldest.value);
+      this.forget(oldest.value);
       this.logger.warn(
         `Evicted conversation ${oldest.value}: at the ${this.config.maxSessions}-conversation limit`,
       );

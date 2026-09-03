@@ -7,6 +7,10 @@ import { QueryAuditEntry } from './execution.types';
  * Records every question that reached the database, and every one that was
  * refused before it got there.
  *
+ * Entries record which client asked, so one caller cannot read another's
+ * questions back out of the trail. With no API keys configured there is one
+ * implicit caller and nothing to separate.
+ *
  * The trail is written to the log and kept in a bounded in-memory ring for
  * inspection. It is deliberately *not* written to the database being queried:
  * that connection is read-only by design, and the target database belongs to
@@ -46,15 +50,26 @@ export class QueryAuditService {
         durationMs: recorded.durationMs,
         reason: recorded.reason,
         conversationId: recorded.conversationId,
+        clientId: recorded.clientId,
       }),
     );
 
     return recorded;
   }
 
-  /** Most recent entries, newest first. */
-  recent(limit = 50): QueryAuditEntry[] {
-    return this.entries.slice(-limit).reverse();
+  /**
+   * Most recent entries, newest first.
+   *
+   * Narrowed to one client when `clientId` is given. The match is strict:
+   * an entry with no client is not shown to a caller that has one, because
+   * "unattributed" must not become a way to see everything.
+   */
+  recent(limit = 50, clientId?: string): QueryAuditEntry[] {
+    const visible = clientId
+      ? this.entries.filter((entry) => entry.clientId === clientId)
+      : this.entries;
+
+    return visible.slice(-limit).reverse();
   }
 
   size(): number {
