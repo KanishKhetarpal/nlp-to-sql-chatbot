@@ -30,6 +30,10 @@ export interface LlmConfig {
   maxTokens: number;
   /** Thinking depth and overall token spend. */
   effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  /** How long one attempt may take before it is abandoned. */
+  timeoutMs: number;
+  /** Attempts the SDK makes after the first, on a retryable failure. */
+  maxRetries: number;
 }
 
 export interface ConversationConfig {
@@ -118,6 +122,8 @@ export default (): Configuration => ({
     model: process.env.LLM_MODEL as string,
     maxTokens: parseInt(process.env.LLM_MAX_TOKENS as string, 10),
     effort: process.env.LLM_EFFORT as LlmConfig['effort'],
+    timeoutMs: parseInt(process.env.LLM_TIMEOUT_MS as string, 10),
+    maxRetries: parseInt(process.env.LLM_MAX_RETRIES as string, 10),
   },
   conversation: {
     ttlSeconds: parseInt(process.env.CONVERSATION_TTL as string, 10),

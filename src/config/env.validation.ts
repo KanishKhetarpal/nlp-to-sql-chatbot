@@ -44,6 +44,11 @@ export const envValidationSchema = Joi.object({
   LLM_EFFORT: Joi.string()
     .valid('low', 'medium', 'high', 'xhigh', 'max')
     .default('high'),
+  // The database is held to EXECUTION_TIMEOUT_MS; the model call needs its own
+  // bound or a hung provider holds a request open for the SDK's ten minutes,
+  // once per attempt.
+  LLM_TIMEOUT_MS: Joi.number().integer().min(1000).max(600000).default(60000),
+  LLM_MAX_RETRIES: Joi.number().integer().min(0).max(5).default(2),
 
   // Conversations are held in memory, so all three of these bound how much of
   // it a busy instance can consume.

@@ -7,6 +7,8 @@ import {
 } from './llm.types';
 
 const mockCreate = jest.fn();
+/** Options each constructed SDK client was given. */
+const mockClientOptions: Record<string, unknown>[] = [];
 
 // The SDK is mocked so these tests assert the request we *send* — the part we
 // control — without needing credentials or a network round trip.
@@ -26,7 +28,9 @@ jest.mock('@anthropic-ai/sdk', () => {
 
   class MockAnthropic {
     beta = { messages: { create: mockCreate } };
-    constructor(readonly options: { apiKey: string }) {}
+    constructor(readonly options: Record<string, unknown>) {
+      mockClientOptions.push(options);
+    }
   }
 
   return {
@@ -93,6 +97,8 @@ describe('AnthropicLlmClient', () => {
         model: 'claude-opus-5',
         maxTokens: 16000,
         effort: 'high',
+        timeoutMs: 60000,
+        maxRetries: 2,
         ...overrides,
       }),
     } as unknown as ConfigService;
@@ -101,6 +107,7 @@ describe('AnthropicLlmClient', () => {
   };
 
   beforeEach(() => {
+    mockClientOptions.length = 0;
     mockCreate.mockReset();
     mockCreate.mockResolvedValue(reply());
     client = build();
@@ -241,6 +248,31 @@ describe('AnthropicLlmClient', () => {
     expect(client.describe()).toEqual({
       provider: 'anthropic',
       model: 'claude-opus-5',
+    });
+  });
+
+  describe('the transport it configures', () => {
+    it('bounds one attempt, rather than taking the SDK default', () => {
+      // Unset, the SDK allows ten minutes per attempt. The database in the
+      // same pipeline is held to ten seconds, so an unresponsive provider
+      // would be the one unbounded step in a request.
+      build({ timeoutMs: 45000 });
+
+      expect(mockClientOptions.at(-1)).toMatchObject({ timeout: 45000 });
+    });
+
+    it('bounds how many attempts are made', () => {
+      // Retries multiply the timeout, so the worst case is only knowable if
+      // both are set.
+      build({ maxRetries: 1 });
+
+      expect(mockClientOptions.at(-1)).toMatchObject({ maxRetries: 1 });
+    });
+
+    it('still passes the key', () => {
+      build();
+
+      expect(mockClientOptions.at(-1)).toMatchObject({ apiKey: 'test-key' });
     });
   });
 });

@@ -24,6 +24,11 @@ import {
  *   call into its visible text and leak internal tags into the response.
  * - `max_tokens` bounds thinking *and* answer together, so it is sized well
  *   above the length of the SQL we expect back.
+ * - `timeout` and `maxRetries` are set explicitly. The SDK defaults to ten
+ *   minutes per attempt, which would let an unresponsive provider hold a
+ *   request open far longer than anything else in the pipeline: the database
+ *   is bounded to ten seconds by comparison. Worst case is the timeout times
+ *   one more than the retry count, so both are configured together.
  * - `fallbacks: 'default'` lets a request the safety classifiers decline be
  *   re-run server-side on Anthropic's recommended substitute, rather than
  *   surfacing as a failed question. A schema with tables named `users` or
@@ -39,7 +44,11 @@ export class AnthropicLlmClient extends LlmClient {
   constructor(configService: ConfigService) {
     super();
     this.config = configService.get<LlmConfig>('llm')!;
-    this.client = new Anthropic({ apiKey: this.config.apiKey });
+    this.client = new Anthropic({
+      apiKey: this.config.apiKey,
+      timeout: this.config.timeoutMs,
+      maxRetries: this.config.maxRetries,
+    });
   }
 
   describe(): LlmDescription {
