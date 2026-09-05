@@ -277,6 +277,77 @@ describe('SqlValidatorService', () => {
       expect(result.sql).not.toContain('100000');
     });
 
+    it('bounds a query that has an offset and no limit', () => {
+      // The parser gives LIMIT 10 and OFFSET 10 the same single-element value
+      // array, so reading value[0] as the bound took the offset for a limit,
+      // judged the query already capped, and let it run unbounded.
+      const result = service.validate(
+        'SELECT * FROM customers OFFSET 100',
+        schema,
+      );
+
+      expect(result.limitOrigin).toBe('injected');
+      expect(result.sql).toContain('LIMIT 500');
+      expect(result.sql).toContain('OFFSET 100');
+    });
+
+    it('bounds an offset that happens to sit under the cap', () => {
+      // The case the old reading got most wrong: an offset below the cap
+      // looked like an author's limit within budget, so nothing was added.
+      const result = service.validate(
+        'SELECT * FROM customers OFFSET 5',
+        schema,
+      );
+
+      expect(result.limitOrigin).toBe('injected');
+      expect(result.sql).toContain('LIMIT 500');
+    });
+
+    it('keeps the offset when it clamps the limit', () => {
+      // Dropping it would answer a request for a later page with the first
+      // one — different rows, no error, and nothing on the response saying so.
+      const result = service.validate(
+        'SELECT * FROM customers LIMIT 100000 OFFSET 500',
+        schema,
+      );
+
+      expect(result.limitOrigin).toBe('clamped');
+      expect(result.sql).toContain('LIMIT 500');
+      expect(result.sql).toContain('OFFSET 500');
+    });
+
+    it('keeps the offset when it injects a limit', () => {
+      const result = service.validate(
+        'SELECT * FROM customers ORDER BY id OFFSET 20',
+        schema,
+      );
+
+      expect(result.sql).toContain('LIMIT 500');
+      expect(result.sql).toContain('OFFSET 20');
+    });
+
+    it('leaves a limit and offset alone when both are within the cap', () => {
+      const result = service.validate(
+        'SELECT * FROM customers LIMIT 10 OFFSET 5',
+        schema,
+      );
+
+      expect(result.limitOrigin).toBe('author');
+      expect(result.sql).toContain('LIMIT 10');
+      expect(result.sql).toContain('OFFSET 5');
+    });
+
+    it('treats LIMIT ALL as no limit at all', () => {
+      const result = service.validate(
+        'SELECT * FROM customers LIMIT ALL',
+        schema,
+      );
+
+      expect(result.limitOrigin).toBe('injected');
+      expect(result.sql).toContain('LIMIT 500');
+      expect(result.sql).not.toContain('ALL');
+    });
+
     it('wraps a set operation so the cap covers every branch', () => {
       // Attaching a LIMIT to the tree would bind it to the first branch only,
       // leaving the second half of the union unbounded.

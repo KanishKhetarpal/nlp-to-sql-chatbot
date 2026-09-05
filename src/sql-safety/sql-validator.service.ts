@@ -386,8 +386,7 @@ export class SqlValidatorService {
       };
     }
 
-    const limit = ast.limit as { value?: { value?: number }[] } | undefined;
-    const current = limit?.value?.[0]?.value;
+    const { limit: current, offset } = readLimitNode(ast.limit);
 
     let limitOrigin: LimitOrigin = 'author';
 
@@ -398,7 +397,7 @@ export class SqlValidatorService {
     }
 
     if (limitOrigin !== 'author') {
-      ast.limit = { seperator: '', value: [{ type: 'number', value: max }] };
+      ast.limit = writeLimitNode(max, offset);
     }
 
     return {
@@ -428,3 +427,61 @@ export class SqlValidatorService {
     }
   }
 }
+
+interface LimitValue {
+  type?: string;
+  value?: number | string;
+}
+
+interface LimitNode {
+  seperator?: string;
+  value?: LimitValue[];
+}
+
+/**
+ * Reads the row bound and the starting offset out of the parser's limit node.
+ *
+ * The shape is not what it looks like. `LIMIT 10` and `OFFSET 10` both parse
+ * to a single-element value array, and only the separator says which one was
+ * written — so reading `value[0]` as the limit takes an offset for a bound.
+ * That mattered twice: a query with only an OFFSET was judged already bounded
+ * and ran with no cap at all, and clamping one that had both discarded the
+ * offset, quietly returning the first page where a later one was asked for.
+ *
+ *   LIMIT 10             -> { seperator: '',       value: [10] }
+ *   LIMIT 10 OFFSET 5    -> { seperator: 'offset', value: [10, 5] }
+ *   OFFSET 5             -> { seperator: 'offset', value: [5] }
+ *   (neither)            -> { seperator: '',       value: [] }
+ *   LIMIT ALL            -> { seperator: '',       value: [{ type: 'origin' }] }
+ *
+ * A non-numeric bound — `LIMIT ALL` — is reported as absent, which is what it
+ * means, and the caller then injects the cap.
+ */
+const readLimitNode = (node: unknown): { limit?: number; offset?: number } => {
+  const values = (node as LimitNode | undefined)?.value ?? [];
+  const separator = (node as LimitNode | undefined)?.seperator ?? '';
+  const numberAt = (index: number): number | undefined => {
+    const value = values[index]?.value;
+    return typeof value === 'number' ? value : undefined;
+  };
+
+  if (separator === 'offset') {
+    return values.length > 1
+      ? { limit: numberAt(0), offset: numberAt(1) }
+      : { offset: numberAt(0) };
+  }
+
+  return { limit: numberAt(0) };
+};
+
+/** Rebuilds the node with the cap applied, keeping any offset that was there. */
+const writeLimitNode = (max: number, offset?: number): LimitNode =>
+  offset === undefined
+    ? { seperator: '', value: [{ type: 'number', value: max }] }
+    : {
+        seperator: 'offset',
+        value: [
+          { type: 'number', value: max },
+          { type: 'number', value: offset },
+        ],
+      };
