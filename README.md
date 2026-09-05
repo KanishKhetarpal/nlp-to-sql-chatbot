@@ -332,7 +332,12 @@ curl -X POST http://localhost:3000/chat/ask \
 
 Leaving `API_KEYS` empty leaves the API open, which is convenient locally and
 must not be how it ships — the service warns about it at boot. Requests are
-also rate limited per client (`RATE_LIMIT` per `RATE_LIMIT_WINDOW` seconds).
+also rate limited (`RATE_LIMIT` per `RATE_LIMIT_WINDOW` seconds), counted
+against the key that presented them rather than the address they came from —
+several keys behind one office IP, or one load balancer, each get their own
+allowance. Unauthenticated traffic falls back to the address, and `/health`
+is exempt: a throttled probe reads as unhealthy, so load would restart a
+service that was only busy.
 
 Several keys mean several callers, and they are kept apart. A conversation
 belongs to the key that started it, and `GET /chat/audit` returns that key's
@@ -487,7 +492,7 @@ connection errors. Start the database to include them. They are reported as
 before the suites load, because a test that returns early still counts as a
 pass and nine passes that asserted nothing is not an honest run.
 
-309 tests across unit, integration and end-to-end suites; roughly 90%
+315 tests across unit, integration and end-to-end suites; roughly 90%
 statement coverage. Both figures are the ones CI reports, where the
 database-backed suites actually run — measuring locally without Postgres
 would quietly leave them out and report a floor.
