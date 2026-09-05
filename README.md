@@ -106,7 +106,10 @@ a statement-type check:
 
 Writes are refused at any depth, tables must appear in the introspected schema
 (with optional allow and deny lists on top), and a row cap is applied by
-rewriting the query rather than by trusting the model to add a `LIMIT`. A set
+rewriting the query rather than by trusting the model to add a `LIMIT`. An
+`OFFSET` is read as an offset rather than mistaken for a bound, and is kept
+when the cap is applied — otherwise a request for a later page comes back as
+the first one. A set
 operation is wrapped instead of given a `LIMIT` directly, because attaching one
 binds it to the first branch and leaves the rest of a `UNION` unbounded.
 
@@ -398,6 +401,8 @@ Language model:
 | `LLM_MODEL`         | `claude-opus-5`  | Model id                                                  |
 | `LLM_MAX_TOKENS`    | `16000`          | Output ceiling — covers reasoning and answer together     |
 | `LLM_EFFORT`        | `high`           | `low` … `max`; worth sweeping down on your own examples   |
+| `LLM_TIMEOUT_MS`    | `60000`          | One attempt; unset, the SDK allows ten minutes            |
+| `LLM_MAX_RETRIES`   | `2`              | Retries multiply the timeout — worst case is 3 × the above |
 
 Conversations:
 
@@ -492,7 +497,7 @@ connection errors. Start the database to include them. They are reported as
 before the suites load, because a test that returns early still counts as a
 pass and nine passes that asserted nothing is not an honest run.
 
-315 tests across unit, integration and end-to-end suites; roughly 90%
+324 tests across unit, integration and end-to-end suites; roughly 90%
 statement coverage. Both figures are the ones CI reports, where the
 database-backed suites actually run — measuring locally without Postgres
 would quietly leave them out and report a floor.
