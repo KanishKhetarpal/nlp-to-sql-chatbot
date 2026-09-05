@@ -1,7 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -10,6 +10,7 @@ import { AskService } from '../nl-to-sql/ask.service';
 import { ConversationService } from '../nl-to-sql/conversation.service';
 import { QueryAuditService } from '../execution/query-audit.service';
 import { ApiKeyGuard } from '../common/guards/api-key.guard';
+import { ClientThrottlerGuard } from '../common/guards/client-throttler.guard';
 
 /** Response bodies these tests read, so assertions are not `any`. */
 interface AskBody {
@@ -99,7 +100,9 @@ describe('ChatController (HTTP)', () => {
         },
         Reflector,
         { provide: APP_GUARD, useClass: ApiKeyGuard },
-        { provide: APP_GUARD, useClass: ThrottlerGuard },
+        // The same guard the application registers, so this suite cannot
+        // pass against a stack the service does not actually run.
+        { provide: APP_GUARD, useClass: ClientThrottlerGuard },
       ],
     }).compile();
 
